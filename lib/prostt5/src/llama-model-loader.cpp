@@ -916,6 +916,10 @@ void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps
 
 void llama_model_loader::get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const {
     GGML_ASSERT(!mappings.empty());
+    if (idx < 0 || (size_t) idx >= mappings.size()) {
+        throw std::runtime_error(format("%s: mapping index %d out of range (mappings=%zu, files=%zu)",
+            __func__, idx, mappings.size(), files.size()));
+    }
     const auto & mapping = mappings.at(idx);
 
     *first = mapping->size();
@@ -935,6 +939,10 @@ void llama_model_loader::load_data_for(struct ggml_tensor * cur) const {
     const auto & w = require_weight(ggml_get_name(cur));
 
     if (use_mmap) {
+        if (w.idx >= mappings.size()) {
+            throw std::runtime_error(format("%s: mapping index %u out of range (mappings=%zu, files=%zu) for tensor '%s'",
+                __func__, w.idx, mappings.size(), files.size(), ggml_get_name(cur)));
+        }
         const auto & mapping = mappings.at(w.idx);
         if (cur->data == nullptr) {
             cur->data = (uint8_t *)mapping->addr() + w.offs;
@@ -943,7 +951,10 @@ void llama_model_loader::load_data_for(struct ggml_tensor * cur) const {
         }
     } else {
         GGML_ASSERT(cur->data != nullptr);
-        GGML_ASSERT(w.idx < files.size());
+        if (w.idx >= files.size()) {
+            throw std::runtime_error(format("%s: file index %u out of range (files=%zu) for tensor '%s'",
+                __func__, w.idx, files.size(), ggml_get_name(cur)));
+        }
         const auto & file = files.at(w.idx);
         file->seek(w.offs, SEEK_SET);
         file->read_raw(cur->data, ggml_nbytes(cur));
@@ -1079,6 +1090,10 @@ bool llama_model_loader::load_all_data(
         size_t n_size = ggml_nbytes(cur);
 
         if (use_mmap) {
+            if (weight->idx >= mappings.size()) {
+                throw std::runtime_error(format("%s: mapping index %u out of range (mappings=%zu, files=%zu) for tensor '%s'",
+                    __func__, weight->idx, mappings.size(), files.size(), ggml_get_name(cur)));
+            }
             const auto & mapping = mappings.at(weight->idx);
             ggml_backend_buffer_t buf_mmap = nullptr;
             if (bufs.count(weight->idx)) {
@@ -1096,6 +1111,10 @@ bool llama_model_loader::load_all_data(
             if (buf_mmap && cur->data == nullptr) {
                 ggml_backend_tensor_alloc(buf_mmap, cur, data);
                 if (lmlocks) {
+                    if (weight->idx >= lmlocks->size()) {
+                        throw std::runtime_error(format("%s: mlock index %u out of range (mlocks=%zu) for tensor '%s'",
+                            __func__, weight->idx, lmlocks->size(), ggml_get_name(cur)));
+                    }
                     const auto & lmlock = lmlocks->at(weight->idx);
                     lmlock->grow_to(weight->offs + n_size);
                 }
@@ -1107,6 +1126,10 @@ bool llama_model_loader::load_all_data(
                 ggml_backend_tensor_set(cur, data, 0, n_size);
             }
         } else {
+            if (weight->idx >= files.size()) {
+                throw std::runtime_error(format("%s: file index %u out of range (files=%zu) for tensor '%s'",
+                    __func__, weight->idx, files.size(), ggml_get_name(cur)));
+            }
             const auto & file = files.at(weight->idx);
 
             if (ggml_backend_buffer_is_host(cur->buffer)) {

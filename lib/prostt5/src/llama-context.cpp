@@ -13,6 +13,313 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <unordered_set>
+
+namespace {
+
+struct llama_debug_tensor_cfg {
+    bool enabled = false;
+    bool once = false;
+    size_t count = 4;
+    std::vector<std::string> names;
+};
+
+static std::vector<std::string> split_debug_list(const std::string & list) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : list) {
+        if (c == ',' || c == ' ' || c == '\n' || c == '\t') {
+            if (!cur.empty()) {
+                out.push_back(cur);
+                cur.clear();
+            }
+            continue;
+        }
+        cur.push_back(c);
+    }
+    if (!cur.empty()) {
+        out.push_back(cur);
+    }
+    return out;
+}
+
+static const llama_debug_tensor_cfg & llama_get_debug_tensor_cfg() {
+    static const llama_debug_tensor_cfg cfg = []() {
+        llama_debug_tensor_cfg out;
+        const char * names_env = getenv("LLAMA_DEBUG_TENSOR_NAMES");
+        if (!names_env || names_env[0] == '\0') {
+            return out;
+        }
+
+        out.enabled = true;
+
+        const char * count_env = getenv("LLAMA_DEBUG_TENSOR_COUNT");
+        if (count_env && count_env[0] != '\0') {
+            const int parsed = atoi(count_env);
+            if (parsed > 0) {
+                out.count = static_cast<size_t>(parsed);
+            }
+        }
+
+        const char * once_env = getenv("LLAMA_DEBUG_TENSOR_ONCE");
+        if (once_env && once_env[0] != '\0') {
+            out.once = atoi(once_env) != 0;
+        }
+
+        const std::string names_str(names_env);
+        if (names_str == "default") {
+            out.names = {
+                "inp_tokens",
+                "inp_embd",
+                "inp_norm",
+                "attn_norm",
+                "wqkv",
+                "Qcur",
+                "Kcur",
+                "Vcur",
+                "kqv_out",
+                "ffn_inp",
+                "ffn_norm",
+                "l_out",
+                "final_norm_out",
+                "res_embd",
+            };
+        } else {
+            out.names = split_debug_list(names_str);
+        }
+
+        if (out.names.empty()) {
+            out.enabled = false;
+        }
+
+        return out;
+    }();
+
+    return cfg;
+}
+
+static bool llama_debug_tensor_match(const std::string & name, const std::string & pattern) {
+    if (name == pattern) {
+        return true;
+    }
+    if (name.size() > pattern.size() && name.compare(0, pattern.size(), pattern) == 0 && name[pattern.size()] == '-') {
+        return true;
+    }
+    return false;
+}
+
+struct llama_debug_row_cache {
+    int64_t i1 = -1;
+    int64_t i2 = -1;
+    int64_t i3 = -1;
+    std::vector<float> row;
+};
+
+static void llama_debug_index_to_coords(int64_t idx, const ggml_tensor * t, int64_t & i0, int64_t & i1, int64_t & i2, int64_t & i3) {
+    i0 = idx % t->ne[0];
+    idx /= t->ne[0];
+    i1 = idx % t->ne[1];
+    idx /= t->ne[1];
+    i2 = idx % t->ne[2];
+    idx /= t->ne[2];
+    i3 = idx;
+}
+
+static float llama_debug_get_value(
+        const ggml_tensor * t,
+        const uint8_t * base,
+        int64_t i0, int64_t i1, int64_t i2, int64_t i3,
+        llama_debug_row_cache & cache) {
+    const size_t nb0 = t->nb[0];
+    const size_t nb1 = t->nb[1];
+    const size_t nb2 = t->nb[2];
+    const size_t nb3 = t->nb[3];
+
+    if (t->type == GGML_TYPE_F32) {
+        const char * ptr = (const char *) base + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3;
+        return *reinterpret_cast<const float *>(ptr);
+    }
+
+    if (t->type == GGML_TYPE_F16) {
+        const char * ptr = (const char *) base + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3;
+        return ggml_fp16_to_fp32(*reinterpret_cast<const ggml_fp16_t *>(ptr));
+    }
+
+    if (t->type == GGML_TYPE_I32) {
+        const char * ptr = (const char *) base + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3;
+        return static_cast<float>(*reinterpret_cast<const int32_t *>(ptr));
+    }
+
+    if (t->type == GGML_TYPE_I64) {
+        const char * ptr = (const char *) base + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3;
+        return static_cast<float>(*reinterpret_cast<const int64_t *>(ptr));
+    }
+
+    const ggml_type_traits * traits = ggml_get_type_traits(t->type);
+    const ggml_to_float_t to_float = traits ? traits->to_float : nullptr;
+    if (!to_float) {
+        return 0.0f;
+    }
+
+    if (cache.i1 != i1 || cache.i2 != i2 || cache.i3 != i3 || cache.row.size() != static_cast<size_t>(t->ne[0])) {
+        cache.i1 = i1;
+        cache.i2 = i2;
+        cache.i3 = i3;
+        cache.row.resize(t->ne[0]);
+        const char * row_ptr = (const char *) base + i1*nb1 + i2*nb2 + i3*nb3;
+        to_float(row_ptr, cache.row.data(), t->ne[0]);
+    }
+
+    return cache.row[i0];
+}
+
+static std::string llama_debug_format_values(const std::vector<float> & values) {
+    std::string out;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0) {
+            out.push_back(',');
+        }
+        out += format("%.6g", values[i]);
+    }
+    return out;
+}
+
+static void llama_debug_dump_tensor(const ggml_tensor * t, const llama_debug_tensor_cfg & cfg) {
+    const int64_t n_elems = ggml_nelements(t);
+    if (n_elems <= 0) {
+        return;
+    }
+
+    const ggml_tensor * src = t->view_src ? t->view_src : t;
+    std::vector<uint8_t> buf(ggml_nbytes(src));
+    ggml_backend_tensor_get(src, buf.data(), 0, buf.size());
+
+    const uint8_t * base = buf.data() + (t->view_src ? t->view_offs : 0);
+
+    size_t count = cfg.count;
+    if (count > static_cast<size_t>(n_elems)) {
+        count = static_cast<size_t>(n_elems);
+    }
+
+    std::vector<float> first_vals;
+    std::vector<float> last_vals;
+    first_vals.reserve(count);
+    last_vals.reserve(count);
+
+    llama_debug_row_cache cache;
+
+    for (size_t i = 0; i < count; ++i) {
+        const int64_t idx = static_cast<int64_t>(i);
+        int64_t i0, i1, i2, i3;
+        llama_debug_index_to_coords(idx, t, i0, i1, i2, i3);
+        first_vals.push_back(llama_debug_get_value(t, base, i0, i1, i2, i3, cache));
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        const int64_t idx = n_elems - static_cast<int64_t>(count) + static_cast<int64_t>(i);
+        int64_t i0, i1, i2, i3;
+        llama_debug_index_to_coords(idx, t, i0, i1, i2, i3);
+        last_vals.push_back(llama_debug_get_value(t, base, i0, i1, i2, i3, cache));
+    }
+
+    std::string shape = llama_format_tensor_shape(t);
+    std::string first = llama_debug_format_values(first_vals);
+    std::string last = llama_debug_format_values(last_vals);
+
+    std::string line = format(
+        "LLAMA_DEBUG_TENSOR {\"name\":\"%s\",\"shape\":[%s],\"type\":\"%s\",\"first\":[%s],\"last\":[%s]}",
+        ggml_get_name(t), shape.c_str(), ggml_type_name(t->type), first.c_str(), last.c_str());
+
+    LLAMA_LOG_INFO("%s\n", line.c_str());
+}
+
+static void llama_debug_dump_graph_tensors(ggml_backend_sched_t sched, ggml_cgraph * gf) {
+    const auto & cfg = llama_get_debug_tensor_cfg();
+    if (!cfg.enabled) {
+        return;
+    }
+
+    static bool dumped_once = false;
+    if (cfg.once && dumped_once) {
+        return;
+    }
+
+    ggml_backend_sched_synchronize(sched);
+
+    std::unordered_set<const ggml_tensor *> seen;
+
+    auto maybe_dump = [&](const ggml_tensor * t) {
+        if (!t || seen.count(t) != 0) {
+            return;
+        }
+        seen.insert(t);
+        const char * name = ggml_get_name(t);
+        if (!name || name[0] == '\0') {
+            return;
+        }
+        for (const auto & pattern : cfg.names) {
+            if (llama_debug_tensor_match(name, pattern)) {
+                llama_debug_dump_tensor(t, cfg);
+                break;
+            }
+        }
+    };
+
+    for (int i = 0; i < ggml_graph_n_nodes(gf); ++i) {
+        maybe_dump(ggml_graph_node(gf, i));
+    }
+
+    for (const auto & pattern : cfg.names) {
+        if (pattern.empty()) {
+            continue;
+        }
+        const ggml_tensor * t = ggml_graph_get_tensor(gf, pattern.c_str());
+        if (t) {
+            maybe_dump(t);
+        }
+    }
+    dumped_once = true;
+}
+
+static void llama_debug_dump_ubatch_tokens(const llama_ubatch & ubatch) {
+    const char * env = getenv("LLAMA_DEBUG_UBATCH_TOKENS");
+    if (!env || env[0] == '\0') {
+        return;
+    }
+
+    static bool dumped_once = false;
+    if (dumped_once) {
+        return;
+    }
+    dumped_once = true;
+
+    if (!ubatch.token || ubatch.n_tokens <= 0) {
+        return;
+    }
+
+    int limit = atoi(env);
+    if (limit <= 0 || limit > static_cast<int>(ubatch.n_tokens)) {
+        limit = static_cast<int>(ubatch.n_tokens);
+    }
+
+    std::string tokens_str;
+    tokens_str.reserve(static_cast<size_t>(limit) * 6);
+    for (int i = 0; i < limit; ++i) {
+        if (i > 0) {
+            tokens_str.push_back(',');
+        }
+        tokens_str += format("%d", ubatch.token[i]);
+    }
+
+    const bool truncated = limit < static_cast<int>(ubatch.n_tokens);
+    LLAMA_LOG_INFO(
+        "LLAMA_DEBUG_TOKENS {\"n_tokens\":%d,\"truncated\":%s,\"tokens\":[%s]}\n",
+        ubatch.n_tokens,
+        truncated ? "true" : "false",
+        tokens_str.c_str());
+}
+
+} // namespace
 
 //
 // llama_context
@@ -1099,12 +1406,16 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         //LLAMA_LOG_INFO("graph set inputs time: %.3f ms\n", (ggml_time_us() - t_start_us)/1000.0);
     }
 
+    llama_debug_dump_ubatch_tokens(ubatch);
+
     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
     if (status != GGML_STATUS_SUCCESS) {
         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
         ret = status;
         return nullptr;
     }
+
+    llama_debug_dump_graph_tensors(sched.get(), res->get_gf());
 
     ret = GGML_STATUS_SUCCESS;
 

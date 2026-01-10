@@ -14,6 +14,86 @@
 #include <cstring>
 #include <unordered_set>
 
+namespace {
+
+struct llama_debug_keep_cfg {
+    bool enabled = false;
+    std::vector<std::string> names;
+};
+
+static std::vector<std::string> split_debug_list(const std::string & list) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : list) {
+        if (c == ',' || c == ' ' || c == '\n' || c == '\t') {
+            if (!cur.empty()) {
+                out.push_back(cur);
+                cur.clear();
+            }
+            continue;
+        }
+        cur.push_back(c);
+    }
+    if (!cur.empty()) {
+        out.push_back(cur);
+    }
+    return out;
+}
+
+static bool llama_debug_name_match(const std::string & name, const std::string & pattern) {
+    if (name == pattern) {
+        return true;
+    }
+    if (name.size() > pattern.size() && name.compare(0, pattern.size(), pattern) == 0 && name[pattern.size()] == '-') {
+        return true;
+    }
+    return false;
+}
+
+static const llama_debug_keep_cfg & llama_get_debug_keep_cfg() {
+    static const llama_debug_keep_cfg cfg = []() {
+        llama_debug_keep_cfg out;
+        const char * names_env = getenv("LLAMA_DEBUG_TENSOR_NAMES");
+        if (!names_env || names_env[0] == '\0') {
+            return out;
+        }
+
+        out.enabled = true;
+
+        const std::string names_str(names_env);
+        if (names_str == "default") {
+            out.names = {
+                "inp_tokens",
+                "inp_embd",
+                "inp_norm",
+                "attn_norm",
+                "wqkv",
+                "Qcur",
+                "Kcur",
+                "Vcur",
+                "kqv_out",
+                "ffn_inp",
+                "ffn_norm",
+                "l_out",
+                "final_norm_out",
+                "res_embd",
+            };
+        } else {
+            out.names = split_debug_list(names_str);
+        }
+
+        if (out.names.empty()) {
+            out.enabled = false;
+        }
+
+        return out;
+    }();
+
+    return cfg;
+}
+
+} // namespace
+
 void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
     if (ubatch->token) {
         const int64_t n_tokens = ubatch->n_tokens;
@@ -729,6 +809,17 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     }
 
 void llm_graph_context::cb(ggml_tensor * cur, const char * name, int il) const {
+    const auto & cfg = llama_get_debug_keep_cfg();
+    if (cfg.enabled && name && name[0] != '\0') {
+        const std::string cur_name(name);
+        for (const auto & pattern : cfg.names) {
+            if (llama_debug_name_match(cur_name, pattern)) {
+                ggml_set_output(cur);
+                break;
+            }
+        }
+    }
+
     if (cb_func) {
         cb_func(ubatch, cur, name, il);
     }
@@ -1287,7 +1378,7 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
 
     if (ubatch.token) {
         inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
-        //cb(inp->tokens, "inp_tokens", -1);
+        cb(inp->tokens, "inp_tokens", -1);
         ggml_set_input(inp->tokens);
         res->t_tokens = inp->tokens;
 
@@ -2118,10 +2209,22 @@ void llm_graph_context::build_pooling(
 
     ggml_tensor * cur;
 
+    const bool use_token_classifier = arch == LLM_ARCH_MODERN_BERT &&
+        hparams.n_cls_out == 20 &&
+        cls_out != nullptr &&
+        pooling_type == LLAMA_POOLING_TYPE_NONE;
+
     switch (pooling_type) {
         case LLAMA_POOLING_TYPE_NONE:
             {
-                cur = inp;
+                if (use_token_classifier) {
+                    cur = ggml_mul_mat(ctx0, cls_out, inp);
+                    if (cls_out_b) {
+                        cur = ggml_add(ctx0, cur, cls_out_b);
+                    }
+                } else {
+                    cur = inp;
+                }
             } break;
         case LLAMA_POOLING_TYPE_MEAN:
             {
