@@ -7363,6 +7363,11 @@ ggml_tensor * llama_model::get_rope_factors(const llama_cparams & cparams, int i
 }
 
 llama_memory_i * llama_model::create_memory(const llama_memory_params & params, const llama_cparams & cparams) const {
+#if LLAMA_ENCODER_ONLY
+    (void) params;
+    (void) cparams;
+    return nullptr;
+#else
     llama_memory_i * res;
 
     switch (arch) {
@@ -7485,11 +7490,18 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
     }
 
     return res;
+#endif
 }
 
 ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
     std::unique_ptr<llm_graph_context> llm;
 
+#if LLAMA_ENCODER_ONLY
+    if (arch != LLM_ARCH_T5ENCODER) {
+        GGML_ABORT("encoder-only build supports only t5encoder");
+    }
+    llm = std::make_unique<llm_build_t5_enc>(*this, params);
+#else
     switch (arch) {
         case LLM_ARCH_LLAMA:
             {
@@ -7951,6 +7963,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
         default:
             GGML_ABORT("fatal error");
     }
+#endif
 
     // add on pooling layer
     llm->build_pooling(cls, cls_b, cls_out, cls_out_b, conv0, conv0_b, conv3, conv3_b);
@@ -8313,14 +8326,24 @@ bool llama_model_has_encoder(const llama_model * model) {
 }
 
 bool llama_model_has_decoder(const llama_model * model) {
+#if LLAMA_ENCODER_ONLY
+    (void) model;
+    return false;
+#else
     switch (model->arch) {
         case LLM_ARCH_T5ENCODER: return false;
         default:                 return true;
     }
+#endif
 }
 
 llama_token llama_model_decoder_start_token(const llama_model * model) {
+#if LLAMA_ENCODER_ONLY
+    (void) model;
+    return -1;
+#else
     return model->hparams.dec_start_token_id;
+#endif
 }
 
 bool llama_model_is_recurrent(const llama_model * model) {

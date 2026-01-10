@@ -1318,6 +1318,7 @@ static void copy_tensor_async_ints(
     }
 }
 
+#if !LLAMA_ENCODER_ONLY
 static void copy_tensor_async_floats(
     const std::map<llama_seq_id, ggml_tensor*> & tensor_map,
     float * dst,
@@ -1379,8 +1380,14 @@ static void copy_tensor_async_candidates(
         counts[row] = ggml_nelements(tensor);
     }
 }
+#endif
 
 int llama_context::decode(const llama_batch & batch_inp) {
+#if LLAMA_ENCODER_ONLY
+    (void) batch_inp;
+    LLAMA_LOG_ERROR("%s: decoder disabled in encoder-only build\n", __func__);
+    return -1;
+#else
     GGML_ASSERT((!batch_inp.token && batch_inp.embd) || (batch_inp.token && !batch_inp.embd)); // NOLINT
 
     if (!memory) {
@@ -1729,6 +1736,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
     //synchronize();
 
     return 0;
+#endif
 }
 
 //
@@ -3443,12 +3451,19 @@ int32_t llama_encode(
 int32_t llama_decode(
         llama_context * ctx,
           llama_batch   batch) {
+#if LLAMA_ENCODER_ONLY
+    (void) ctx;
+    (void) batch;
+    LLAMA_LOG_ERROR("%s: decoder disabled in encoder-only build\n", __func__);
+    return -1;
+#else
     const int ret = ctx->decode(batch);
     if (ret != 0 && ret != 1) {
         LLAMA_LOG_ERROR("%s: failed to decode, ret = %d\n", __func__, ret);
     }
 
     return ret;
+#endif
 }
 
 //
