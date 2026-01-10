@@ -31,6 +31,28 @@ static char number_to_char(unsigned int n) {
     }
 }
 
+static llama_token token_from_piece(
+    const llama_vocab * vocab,
+    const std::string & piece,
+    bool parse_special) {
+    llama_token buf[8];
+    const int32_t n_tokens_max = static_cast<int32_t>(sizeof(buf) / sizeof(buf[0]));
+    int32_t n = llama_tokenize(vocab, piece.c_str(), static_cast<int32_t>(piece.size()),
+        buf, n_tokens_max, false, parse_special);
+    if (n == 1) {
+        return buf[0];
+    }
+    if (n < 0) {
+        std::vector<llama_token> tmp(static_cast<size_t>(-n));
+        n = llama_tokenize(vocab, piece.c_str(), static_cast<int32_t>(piece.size()),
+            tmp.data(), static_cast<int32_t>(tmp.size()), false, parse_special);
+        if (n == 1) {
+            return tmp[0];
+        }
+    }
+    return LLAMA_TOKEN_NULL;
+}
+
 static int encode(llama_context * ctx, std::vector<llama_token> & enc_input, std::string & result) {
     const struct llama_model * model = llama_get_model(ctx);
 
@@ -145,7 +167,7 @@ ProstT5Model::ProstT5Model(const std::string& model_file, std::string& device) {
         mparams.n_gpu_layers = 0;
     }
     mparams.use_mmap        = true;
-    model = llama_load_model_from_file(model_file.c_str(), mparams);
+    model = llama_model_load_from_file(model_file.c_str(), mparams);
 
     // for (auto & la : params.lora_adapters) {
     //     lora_adapter_container loaded_la;
@@ -161,7 +183,7 @@ ProstT5Model::ProstT5Model(const std::string& model_file, std::string& device) {
 }
 
 ProstT5Model::~ProstT5Model() {
-    llama_free_model(model);
+    llama_model_free(model);
 }
 
 ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
@@ -174,7 +196,7 @@ ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
     cparams.embeddings = true;
     cparams.attention_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
 
-    ctx = llama_new_context_with_model(model.model, cparams);
+    ctx = llama_init_from_model(model.model, cparams);
     // batch = llama_batch_init(4096, 0, 1);
     // if (!params.lora_init_without_apply) {
     //     llama_lora_adapter_clear(lctx);
@@ -192,21 +214,30 @@ ProstT5::~ProstT5() {
 
 std::string ProstT5::predict(const std::string& aa) {
     std::string result;
+    const llama_vocab * vocab = llama_model_get_vocab(model.model);
     std::vector<llama_token> embd_inp;
     embd_inp.reserve(aa.length() + 2);
-    embd_inp.emplace_back(llama_token_get_token(model.model, "<AA2fold>"));
-    llama_token unk_aa = llama_token_get_token(model.model, "▁X");
+    llama_token start_token = token_from_piece(vocab, "<AA2fold>", true);
+    llama_token unk_aa = token_from_piece(vocab, "▁X", false);
+    if (start_token == LLAMA_TOKEN_NULL || unk_aa == LLAMA_TOKEN_NULL) {
+        return result;
+    }
+    embd_inp.emplace_back(start_token);
     for (size_t i = 0; i < aa.length(); ++i) {
         std::string current_char("▁");
         current_char.append(1, toupper(aa[i]));
-        llama_token token = llama_token_get_token(model.model, current_char.c_str());
+        llama_token token = token_from_piece(vocab, current_char, false);
         if (token == LLAMA_TOKEN_NULL) {
             embd_inp.emplace_back(unk_aa);
         } else {
             embd_inp.emplace_back(token);
         }
     }
-    embd_inp.emplace_back(llama_token_get_token(model.model, "</s>"));
+    llama_token end_token = token_from_piece(vocab, "</s>", true);
+    if (end_token == LLAMA_TOKEN_NULL) {
+        end_token = unk_aa;
+    }
+    embd_inp.emplace_back(end_token);
     encode(ctx, embd_inp, result);
     return result;
 }
