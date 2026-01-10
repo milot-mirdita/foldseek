@@ -304,6 +304,9 @@ llama_context::llama_context(
 
         const uint32_t n_seqs = cparams.n_seq_max;
         const uint32_t n_tokens = std::min(cparams.n_ctx, cparams.n_ubatch);
+        // ProstT5 conv head needs at least 3 tokens during graph reserve.
+        const uint32_t min_graph_tokens =
+            (model.arch == LLM_ARCH_T5ENCODER && model.conv0 && model.conv3) ? 3u : 1u;
 
         const size_t max_nodes = this->graph_max_nodes(n_tokens);
 
@@ -359,12 +362,16 @@ llama_context::llama_context(
 
         // avoid reserving graphs with zero outputs - assume one output per sequence
         n_outputs = n_seqs;
+        if (min_graph_tokens > n_outputs) {
+            n_outputs = min_graph_tokens;
+        }
 
         LLAMA_LOG_DEBUG("%s: worst-case: n_tokens = %d, n_seqs = %d, n_outputs = %d\n", __func__, n_tokens, n_seqs, n_outputs);
 
         // resolve automatic Flash Attention use
         if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO) {
-            auto * gf = graph_reserve(1, n_seqs, n_outputs, mctx.get(), true);
+            const uint32_t fa_tokens = std::max(n_seqs, min_graph_tokens);
+            auto * gf = graph_reserve(fa_tokens, n_seqs, n_outputs, mctx.get(), true);
             if (!gf) {
                 throw std::runtime_error("failed to split graph for Flash Attention check");
             }
@@ -432,7 +439,8 @@ llama_context::llama_context(
 
         // reserve with tg (token generation) graph to get the number of splits and nodes
         {
-            auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(), model.hparams.no_alloc);
+            const uint32_t tg_tokens = std::max(n_seqs, min_graph_tokens);
+            auto * gf = graph_reserve(tg_tokens, n_seqs, n_outputs, mctx.get(), model.hparams.no_alloc);
             if (!gf) {
                 throw std::runtime_error("failed to allocate compute tg buffers");
             }
