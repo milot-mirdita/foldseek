@@ -739,7 +739,7 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
         par.gpu = origGpu;
 
         std::vector<std::string> prefix = { "", "/model" };
-        std::vector<std::string> suffix = { "", "/prostt5-f16.gguf" };
+        std::vector<std::string> suffix = { "", "/modernprost-f16.gguf", "/prostt5-f16.gguf" };
         // bool quantized = false;
         std::string modelWeights;
         for (size_t i = 0; i < prefix.size(); ++i) {

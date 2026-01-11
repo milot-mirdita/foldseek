@@ -525,14 +525,6 @@ std::vector<DatabaseDownload> externalDownloads = {
                 {}
         },
         {
-                "ProstT5",
-                "Protein language model to predict 3Di directly from sequence.",
-                "Heinzinger et al. Bilingual language model for protein sequence and structure. NAR Genomics and Bioinformatics, lqae150 (2024)",
-                "https://huggingface.co/Rostlab/ProstT5",
-                false, Parameters::DBTYPE_AMINO_ACIDS, structdatabases_sh, structdatabases_sh_len,
-                {}
-        },
-        {
                 "TED",
                 "The Encyclopedia of Domains across the whole AlphaFold Database.",
                 "Lau, Andy M. et al. Exploring structural diversity across the protein universe with the Encyclopedia of Domains. Science, eadq4946 (2024)",
@@ -547,5 +539,21 @@ std::vector<DatabaseDownload> externalDownloads = {
                 "https://ted.cathdb.info",
                 true, Parameters::DBTYPE_AMINO_ACIDS, structdatabases_sh, structdatabases_sh_len,
                 {}
-        }
+        },
+        {
+                "ProstT5",
+                "Protein language model to predict 3Di directly from sequence.",
+                "Heinzinger et al. Bilingual language model for protein sequence and structure. NAR Genomics and Bioinformatics, lqae150 (2024)",
+                "https://huggingface.co/Rostlab/ProstT5",
+                false, Parameters::DBTYPE_AMINO_ACIDS, structdatabases_sh, structdatabases_sh_len,
+                {}
+        },
+        {
+                "ModernProst",
+                "Fast protein language model to predict 3Di directly from sequence.",
+                "TBD",
+                "https://github.com/gbouras13/distill_prostt5",
+                false, Parameters::DBTYPE_AMINO_ACIDS, structdatabases_sh, structdatabases_sh_len,
+                {}
+        },
 };

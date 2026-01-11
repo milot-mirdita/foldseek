@@ -171,7 +171,16 @@ case "${SELECTION}" in
     "ProstT5")
         MODEL=prostt5-f16-gguf.tar.gz
         if notExists "${TMP_PATH}/${MODEL}"; then
-            downloadFile "https://foldseek.steineggerlab.workers.dev/${MODEL}" "${TMP_PATH}/${MODEL}"
+            downloadFile "https://opendata.mmseqs.org/foldseek/${MODEL}" "${TMP_PATH}/${MODEL}"
+        fi
+        mkdir -p -- "${OUTDB}"
+        tar xvfz "${TMP_PATH}/${MODEL}" -C "${OUTDB}"
+        INPUT_TYPE="MODEL_WEIGHTS"
+    ;;
+    "ModernProst")
+        MODEL=modernprost-f16-gguf-v0.tar.gz
+        if notExists "${TMP_PATH}/${MODEL}"; then
+            downloadFile "https://opendata.mmseqs.org/foldseek/${MODEL}" "${TMP_PATH}/${MODEL}"
         fi
         mkdir -p -- "${OUTDB}"
         tar xvfz "${TMP_PATH}/${MODEL}" -C "${OUTDB}"
