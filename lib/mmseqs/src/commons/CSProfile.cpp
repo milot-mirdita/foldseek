@@ -356,7 +356,7 @@ float * CSProfile::computeSequenceCs(unsigned char * numSeq, int seqLen, float p
 
 
 template<int type>
-float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
+float * CSProfile::computeProfile(unsigned char * numSeq, unsigned int seqLen,
                                   float * count, float * Neff_M,
                                   float pTau, float pca, float pcb){
     //std::cout << "Adding pseudocounts ...\n";
@@ -368,7 +368,7 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
     for (size_t k = 0; k < ctxLib->libSize; ++k) {
         float* ppi = &pp[k * segmentSize * VECSIZE_FLOAT];
         float bias = ctxLib->bias_weight[k];
-        for (int i = 0; i < seqLen; i++) {
+        for (unsigned int i = 0; i < seqLen; i++) {
             float contextScore;
             if(type == Parameters::DBTYPE_HMM_PROFILE){
                 contextScore = computeProfileContextScore(ctxLib->context_weights[k], count, seqLen, i, center);
@@ -399,7 +399,7 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
 
         }
     }
-    for (int i = 0; i < seqLen; i++) {
+    for (unsigned int i = 0; i < seqLen; i++) {
         maximums[i] = maximums[i] + log(sums[i]);
     }
     for (size_t k = 0; k < ctxLib->libSize; ++k) {
@@ -420,7 +420,7 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
     for (size_t k = 0; k < ctxLib->libSize; ++k){
         float* ppi = &pp[k * segmentSize * VECSIZE_FLOAT];
         float * ctxLib_pc = ctxLib->pc[k];
-        for (int i = 0; i < seqLen; i++) {
+        for (unsigned int i = 0; i < seqLen; i++) {
             float *pc = &profile[i * (Sequence::PROFILE_AA_SIZE + 4)];
             simd_float simd_ppi = simdf32_set(ppi[i]);
             for (size_t a = 0; a < Sequence::PROFILE_AA_SIZE; a += VECSIZE_FLOAT) {
@@ -433,7 +433,7 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
         }
     }
 
-    for (int i = 0; i < seqLen; i++) {
+    for (unsigned int i = 0; i < seqLen; i++) {
         MathUtil::NormalizeTo1(&profile[i * (Sequence::PROFILE_AA_SIZE+4)], Sequence::PROFILE_AA_SIZE);
         //for(size_t a = 0; a < Sequence::PROFILE_AA_SIZE; ++a){
         //    printf("%f\t",profile[i * Sequence::PROFILE_AA_SIZE + a]);
@@ -441,7 +441,7 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
         //printf("\n");
     }
     if(type == Parameters::DBTYPE_HMM_PROFILE) {
-        for (int i = 0; i < seqLen; ++i) {
+        for (unsigned int i = 0; i < seqLen; ++i) {
             float tau = std::min(1.0, pca / (1.0 + Neff_M[i] / pcb));
             float t = 1 - tau;
             for (size_t a = 0; a < Sequence::PROFILE_AA_SIZE; ++a) {
@@ -454,14 +454,14 @@ float * CSProfile::computeProfile(unsigned char * numSeq, int seqLen,
         //AdmixTo(seq, p, admix);
         double tau = pTau; //TODO
         double t = 1 - tau;
-        for (int i = 0; i < seqLen; ++i) {
+        for (unsigned int i = 0; i < seqLen; ++i) {
             for (int a = 0; a < 20; ++a) {
                 profile[(i*(Sequence::PROFILE_AA_SIZE+4)) + a] *= tau;
             }
             profile[(i*(Sequence::PROFILE_AA_SIZE+4)) + numSeq[i]] += t;
         }
     }
-    for (int i = 0; i < seqLen; ++i) {
+    for (unsigned int i = 0; i < seqLen; ++i) {
         MathUtil::NormalizeTo1(&profile[i*(Sequence::PROFILE_AA_SIZE + 4)], Sequence::PROFILE_AA_SIZE);
     }
     return profile;

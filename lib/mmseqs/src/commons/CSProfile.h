@@ -88,7 +88,7 @@ public:
     float * computeSequenceCs(unsigned char * numSeq, int seqLen, float tau);
 private:
     template<int type>
-    float * computeProfile(unsigned char * numSeq, int seqLen, float * count, float * Neff_M, float pTau, float pca, float pcb);
+    float * computeProfile(unsigned char * numSeq, unsigned int seqLen, float * count, float * Neff_M, float pTau, float pca, float pcb);
 };
 
 
