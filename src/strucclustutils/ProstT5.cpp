@@ -31,36 +31,75 @@ static char number_to_char(unsigned int n) {
     }
 }
 
-static int encode(llama_context * ctx, std::vector<llama_token> & enc_input, std::string & result) {
+static llama_token token_from_piece(
+    const llama_vocab * vocab,
+    const std::string & piece,
+    bool parse_special) {
+    llama_token buf[8];
+    const int32_t n_tokens_max = static_cast<int32_t>(sizeof(buf) / sizeof(buf[0]));
+    int32_t n = llama_tokenize(vocab, piece.c_str(), static_cast<int32_t>(piece.size()),
+        buf, n_tokens_max, false, parse_special);
+    if (n == 1) {
+        return buf[0];
+    }
+    if (n < 0) {
+        std::vector<llama_token> tmp(static_cast<size_t>(-n));
+        n = llama_tokenize(vocab, piece.c_str(), static_cast<int32_t>(piece.size()),
+            tmp.data(), static_cast<int32_t>(tmp.size()), false, parse_special);
+        if (n == 1) {
+            return tmp[0];
+        }
+    }
+    return LLAMA_TOKEN_NULL;
+}
+
+static int encode(
+    llama_context * ctx,
+    std::vector<llama_token> & enc_input,
+    size_t pred_len,
+    size_t output_len,
+    std::string & result) {
     const struct llama_model * model = llama_get_model(ctx);
+    const struct llama_vocab * vocab = llama_model_get_vocab(model);
 
     if (llama_encode(ctx, llama_batch_get_one(enc_input.data(), enc_input.size())) < 0) {
         // LOG_ERR("%s : failed to encode\n", __func__);
         return 1;
     }
+    llama_synchronize(ctx);
 
     // LOG_INF("%s: n_tokens = %zu, n_seq = %d\n", __func__, enc_input.size(), 1);
     float* embeddings = llama_get_embeddings(ctx);
     if (embeddings == nullptr) {
         return 1;
     }
-    int * arg_max_idx = new int[enc_input.size()];
-    float * arg_max = new float[enc_input.size()];
-    std::fill(arg_max, arg_max + enc_input.size(), std::numeric_limits<float>::lowest());
-    int seq_len = enc_input.size() - 1;
-    for (int i = 0; i < 20; ++i) {
-        for (int j = 0; j < seq_len; ++j) {
-            if(embeddings[i*seq_len + j] > arg_max[j]){
-               arg_max_idx[j] = i;
-               arg_max[j] = embeddings[i*seq_len + j];
+    if (pred_len == 0 || output_len == 0) {
+        return 0;
+    }
+    if (output_len > pred_len) {
+        output_len = pred_len;
+    }
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    const uint32_t n_cls_out = llama_model_n_cls_out(model);
+    uint32_t n_classes = n_cls_out > 0 ? n_cls_out : 20;
+    if (n_classes == 1 && n_vocab == 150) {
+        n_classes = 20;
+    }
+    const bool token_major = (n_vocab == 28);
+    std::vector<int> arg_max_idx(pred_len);
+    std::vector<float> arg_max(pred_len, std::numeric_limits<float>::lowest());
+    for (uint32_t i = 0; i < n_classes; ++i) {
+        for (size_t j = 0; j < pred_len; ++j) {
+            const size_t idx = token_major ? (j*n_classes + i) : (i*pred_len + j);
+            if (embeddings[idx] > arg_max[j]) {
+                arg_max_idx[j] = i;
+                arg_max[j] = embeddings[idx];
             }
         }
     }
-    for (int i = 0; i < seq_len - 1; ++i) {
+    for (size_t i = 0; i < output_len; ++i) {
         result.push_back(number_to_char(arg_max_idx[i]));
     }
-    delete[] arg_max_idx;
-    delete[] arg_max;
     return 0;
 }
 
@@ -145,7 +184,7 @@ ProstT5Model::ProstT5Model(const std::string& model_file, std::string& device) {
         mparams.n_gpu_layers = 0;
     }
     mparams.use_mmap        = true;
-    model = llama_load_model_from_file(model_file.c_str(), mparams);
+    model = llama_model_load_from_file(model_file.c_str(), mparams);
 
     // for (auto & la : params.lora_adapters) {
     //     lora_adapter_container loaded_la;
@@ -161,7 +200,7 @@ ProstT5Model::ProstT5Model(const std::string& model_file, std::string& device) {
 }
 
 ProstT5Model::~ProstT5Model() {
-    llama_free_model(model);
+    llama_model_free(model);
 }
 
 ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
@@ -174,7 +213,7 @@ ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
     cparams.embeddings = true;
     cparams.attention_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
 
-    ctx = llama_new_context_with_model(model.model, cparams);
+    ctx = llama_init_from_model(model.model, cparams);
     // batch = llama_batch_init(4096, 0, 1);
     // if (!params.lora_init_without_apply) {
     //     llama_lora_adapter_clear(lctx);
@@ -192,22 +231,58 @@ ProstT5::~ProstT5() {
 
 std::string ProstT5::predict(const std::string& aa) {
     std::string result;
+    const llama_vocab * vocab = llama_model_get_vocab(model.model);
     std::vector<llama_token> embd_inp;
     embd_inp.reserve(aa.length() + 2);
-    embd_inp.emplace_back(llama_token_get_token(model.model, "<AA2fold>"));
-    llama_token unk_aa = llama_token_get_token(model.model, "▁X");
+
+    auto token_from_aa = [&](char aa_char) -> llama_token {
+        const char upper = static_cast<char>(toupper(aa_char));
+        std::string piece(1, upper);
+        llama_token token = token_from_piece(vocab, piece, false);
+        if (token != LLAMA_TOKEN_NULL) {
+            return token;
+        }
+        std::string sp_piece("▁");
+        sp_piece.append(1, upper);
+        return token_from_piece(vocab, sp_piece, false);
+    };
+
+    llama_token start_token = token_from_piece(vocab, "<AA2fold>", true);
+    const bool add_start_end = start_token != LLAMA_TOKEN_NULL;
+    if (add_start_end) {
+        embd_inp.emplace_back(start_token);
+    }
+
+    llama_token unk_aa = token_from_aa('X');
+    if (unk_aa == LLAMA_TOKEN_NULL) {
+        unk_aa = token_from_piece(vocab, "<unk>", true);
+    }
+    if (unk_aa == LLAMA_TOKEN_NULL) {
+        return result;
+    }
     for (size_t i = 0; i < aa.length(); ++i) {
-        std::string current_char("▁");
-        current_char.append(1, toupper(aa[i]));
-        llama_token token = llama_token_get_token(model.model, current_char.c_str());
+        llama_token token = token_from_aa(aa[i]);
         if (token == LLAMA_TOKEN_NULL) {
             embd_inp.emplace_back(unk_aa);
         } else {
             embd_inp.emplace_back(token);
         }
     }
-    embd_inp.emplace_back(llama_token_get_token(model.model, "</s>"));
-    encode(ctx, embd_inp, result);
+    if (add_start_end) {
+        llama_token end_token = token_from_piece(vocab, "</s>", true);
+        if (end_token == LLAMA_TOKEN_NULL) {
+            end_token = unk_aa;
+        }
+        embd_inp.emplace_back(end_token);
+    }
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    const uint32_t n_cls_out = llama_model_n_cls_out(model.model);
+    const bool is_modernprost = (n_cls_out == 20 && n_vocab == 28);
+    size_t pred_len = aa.length();
+    if (!is_modernprost && embd_inp.size() > 0) {
+        pred_len = embd_inp.size() - 1;
+    }
+    encode(ctx, embd_inp, pred_len, aa.length(), result);
     return result;
 }
 
@@ -217,9 +292,15 @@ std::vector<std::string> ProstT5::getDevices() {
         ggml_backend_dev_t dev = ggml_backend_dev_get(i);
         std::string name = ggml_backend_dev_name(dev);
         std::string description = ggml_backend_dev_description(dev);
-        // ignore Metal in CI
-        if (name == "Metal" && description.find("Paravirtual") != std::string::npos) {
-            continue;
+        ggml_backend_dev_props props;
+        ggml_backend_dev_get_props(dev, &props);
+        // ignore Metal in CI or when the backend reports no usable memory
+        if (name == "Metal") {
+            const bool bad_desc = description.empty() || description.find("Paravirtual") != std::string::npos;
+            const bool no_mem = props.memory_free == 0 && props.memory_total == 0;
+            if (bad_desc || no_mem) {
+                continue;
+            }
         }
         devices.push_back(name);
     }
