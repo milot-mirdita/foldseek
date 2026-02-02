@@ -811,7 +811,15 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
         if (useForkRunner) {
             prostt5Forking(modelWeights, par.prostt5SplitLength, MIN_SPLIT_LENGTH, reader, ssDb, ssIndex, par.threads, par.compressed);
         } else {
-            DBWriter writer(ssDb.c_str(), ssIndex.c_str(), par.threads, par.compressed, reader.getDbtype());
+            bool profile_output = false;
+            {
+                std::string probe_device = "none";
+                ProstT5Model probe_model(modelWeights.c_str(), probe_device);
+                ProstT5 probe_context(probe_model, 1);
+                profile_output = probe_context.outputsProfile();
+            }
+            const int out_db_type = profile_output ? Parameters::DBTYPE_HMM_PROFILE : reader.getDbtype();
+            DBWriter writer(ssDb.c_str(), ssIndex.c_str(), par.threads, par.compressed, out_db_type);
             writer.open();
 
             Debug::Progress progress(reader.getSize());
@@ -857,16 +865,26 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
                         // loop over splits and predict
                         for (unsigned int i = 0; i < n_splits; i++){
                             unsigned int split_start = i * split_length;
-                            result.append(context.predict(seq.substr(split_start, split_length)));
+                            if (profile_output) {
+                                result.append(context.predictProfile(seq.substr(split_start, split_length)));
+                            } else {
+                                result.append(context.predict(seq.substr(split_start, split_length)));
+                            }
                         }
                     } else {
-                        result.append(context.predict(seq));
+                        if (profile_output) {
+                            result.append(context.predictProfile(seq));
+                        } else {
+                            result.append(context.predict(seq));
+                        }
                     }
 
                     writer.writeStart(thread_idx);
-                    writer.writeAdd(result.c_str(), result.length(), thread_idx);
-                    writer.writeAdd(&newline, 1, thread_idx);
-                    writer.writeEnd(key, thread_idx);
+                    writer.writeAdd(result.data(), result.length(), thread_idx);
+                    if (!profile_output) {
+                        writer.writeAdd(&newline, 1, thread_idx);
+                    }
+                    writer.writeEnd(key, thread_idx, !profile_output);
                     progress.updateProgress();
                 }
             }

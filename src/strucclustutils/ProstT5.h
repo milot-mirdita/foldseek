@@ -32,10 +32,15 @@ public:
     static std::vector<std::string> getDevices();
     
     std::string predict(const std::string& aa);
+    std::string predictProfile(const std::string& aa);
+    bool outputsProfile() const;
     void perf();
 
     ProstT5Model& model;
     llama_context* ctx;
+
+private:
+    bool profile_output;
 };
 
 

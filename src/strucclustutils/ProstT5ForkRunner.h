@@ -2,6 +2,7 @@
 #define PROSTT5_FORK_RUNNER_H
 #include "DBReader.h"
 #include "DBWriter.h"
+#include "Parameters.h
 #include "ProstT5.h"
 
 #include <unistd.h>
@@ -59,11 +60,13 @@ void prostt5Forking(
                 std::string device = "none";
                 ProstT5Model model(modelWeights, device);
                 ProstT5 context(model, inner);
+                const bool profile_output = context.outputsProfile();
                 std::string result;
                 const char newline = '\n';
 
                 std::pair<std::string, std::string> outDb = Util::createTmpFileNames(db, index, p);
-                DBWriter writer(outDb.first.c_str(), outDb.second.c_str(), 1, compressed, reader.getDbtype());
+                const int out_db_type = profile_output ? Parameters::DBTYPE_HMM_PROFILE : reader.getDbtype();
+                DBWriter writer(outDb.first.c_str(), outDb.second.c_str(), 1, compressed, out_db_type);
                 writer.open();
                 while (true) {
                     TaskMsg msg;
@@ -97,17 +100,27 @@ void prostt5Forking(
                         // loop over splits and predict
                         for (unsigned int i = 0; i < n_splits; i++){
                             unsigned int split_start = i * split_length;
-                            result.append(context.predict(seq.substr(split_start, split_length)));
+                            if (profile_output) {
+                                result.append(context.predictProfile(seq.substr(split_start, split_length)));
+                            } else {
+                                result.append(context.predict(seq.substr(split_start, split_length)));
+                            }
                         }
                     } else {
-                        result.append(context.predict(seq));
+                        if (profile_output) {
+                            result.append(context.predictProfile(seq));
+                        } else {
+                            result.append(context.predict(seq));
+                        }
                     }
                     // Debug(Debug::INFO) << "p: " << p << "pred: " << result << "\n";
 
                     writer.writeStart(0);
-                    writer.writeAdd(result.c_str(), result.length(), 0);
-                    writer.writeAdd(&newline, 1, 0);
-                    writer.writeEnd(key, 0);
+                    writer.writeAdd(result.data(), result.length(), 0);
+                    if (!profile_output) {
+                        writer.writeAdd(&newline, 1, 0);
+                    }
+                    writer.writeEnd(key, 0, !profile_output);
                     progress.updateProgress(i);
                 }
 

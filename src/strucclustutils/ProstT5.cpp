@@ -2,8 +2,20 @@
 
 #include "llama.h"
 
+#include <array>
+#include <cmath>
+#include <cctype>
+#include <cstring>
 #include <limits>
 #include <vector>
+
+static const std::array<float, 20> PROFILE_BACKPROBS = {
+    0.0489372f, 0.0306991f, 0.1010490f, 0.0329671f, 0.0276149f,
+    0.0416262f, 0.0452521f, 0.0308760f, 0.0297251f, 0.0607036f,
+    0.0150238f, 0.0215826f, 0.0783843f, 0.0512926f, 0.0264886f,
+    0.0610702f, 0.0201311f, 0.2159980f, 0.0310265f, 0.0295417f,
+};
+static const float PROFILE_BIT_FACTOR = 8.0f;
 
 static char number_to_char(unsigned int n) {
     switch(n) {
@@ -100,6 +112,100 @@ static int encode(
     for (size_t i = 0; i < output_len; ++i) {
         result.push_back(number_to_char(arg_max_idx[i]));
     }
+    return 0;
+}
+
+static inline int8_t pssm_from_prob(float prob, float backprob) {
+    float odds = backprob > 0.0f ? (prob / backprob) : 0.0f;
+    float log_prob = odds > 0.0f ? std::log2f(odds) : -128.0f;
+    float pssm = log_prob * PROFILE_BIT_FACTOR;
+    pssm = (pssm < 0.0f) ? (pssm - 0.5f) : (pssm + 0.5f);
+    if (pssm < -128.0f) {
+        pssm = -128.0f;
+    } else if (pssm > 127.0f) {
+        pssm = 127.0f;
+    }
+    return static_cast<int8_t>(pssm);
+}
+
+static int encode_profile(
+    llama_context * ctx,
+    std::vector<llama_token> & enc_input,
+    size_t pred_len,
+    size_t output_len,
+    std::string & result) {
+    const struct llama_model * model = llama_get_model(ctx);
+    const struct llama_vocab * vocab = llama_model_get_vocab(model);
+
+    if (llama_encode(ctx, llama_batch_get_one(enc_input.data(), enc_input.size())) < 0) {
+        return 1;
+    }
+    llama_synchronize(ctx);
+
+    float * embeddings = llama_get_embeddings(ctx);
+    if (embeddings == nullptr) {
+        return 1;
+    }
+
+    if (pred_len == 0 || output_len == 0) {
+        return 0;
+    }
+    if (output_len > pred_len) {
+        output_len = pred_len;
+    }
+
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    const uint32_t n_cls_out = llama_model_n_cls_out(model);
+    uint32_t n_classes = n_cls_out > 0 ? n_cls_out : 20;
+    if (n_classes == 1 && n_vocab == 150) {
+        n_classes = 20;
+    }
+    if (n_classes != PROFILE_BACKPROBS.size()) {
+        return 1;
+    }
+
+    const bool token_major = (n_vocab == 28);
+    result.clear();
+    result.reserve(output_len * 25);
+
+    std::array<float, 20> logits{};
+    std::array<float, 20> exps{};
+    std::array<char, 20> pssm_row{};
+
+    for (size_t j = 0; j < output_len; ++j) {
+        float max_logit = -std::numeric_limits<float>::infinity();
+        int8_t consensus = 0;
+
+        for (uint32_t i = 0; i < n_classes; ++i) {
+            const size_t idx = token_major ? (j * n_classes + i) : (i * pred_len + j);
+            const float v = embeddings[idx];
+            logits[i] = v;
+            if (v > max_logit) {
+                max_logit = v;
+                consensus = static_cast<int8_t>(i);
+            }
+        }
+
+        float sum = 0.0f;
+        for (uint32_t i = 0; i < n_classes; ++i) {
+            const float e = std::expf(logits[i] - max_logit);
+            exps[i] = e;
+            sum += e;
+        }
+        const float inv_sum = sum > 0.0f ? 1.0f / sum : 0.0f;
+
+        for (uint32_t i = 0; i < n_classes; ++i) {
+            const float prob = exps[i] * inv_sum;
+            pssm_row[i] = static_cast<char>(pssm_from_prob(prob, PROFILE_BACKPROBS[i]));
+        }
+        result.append(pssm_row.data(), pssm_row.size());
+        result.push_back(static_cast<char>(consensus));
+        result.push_back(static_cast<char>(consensus));
+        result.push_back(0);
+        result.push_back(0);
+        result.push_back(0);
+    }
+
     return 0;
 }
 
@@ -207,13 +313,28 @@ ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
     auto cparams = llama_context_default_params();
     cparams.n_threads = threads;
     cparams.n_threads_batch = threads;
-    cparams.n_ubatch = 2048;
-    cparams.n_batch = 2048;
-    cparams.n_ctx = 2048;
+    // const int32_t model_ctx = llama_model_n_ctx_train(model.model);
+    const int32_t model_ctx = 2048;
+    cparams.n_ctx = model_ctx > 0 ? static_cast<uint32_t>(model_ctx) : 2048;
+    cparams.n_batch = cparams.n_ctx;
+    cparams.n_ubatch = cparams.n_ctx;
+    cparams.type_k = GGML_TYPE_F32;
+    cparams.type_v = GGML_TYPE_F32;
     cparams.embeddings = true;
     cparams.attention_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
 
     ctx = llama_init_from_model(model.model, cparams);
+    profile_output = false;
+    char meta_val[16];
+    if (llama_model_meta_val_str(model.model, "modernprost.profiles", meta_val, sizeof(meta_val)) > 0) {
+        for (size_t i = 0; meta_val[i] != '\0'; ++i) {
+            meta_val[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(meta_val[i])));
+        }
+        if (strcmp(meta_val, "1") == 0 || strcmp(meta_val, "true") == 0 || strcmp(meta_val, "yes") == 0) {
+            profile_output = true;
+        }
+    }
     // batch = llama_batch_init(4096, 0, 1);
     // if (!params.lora_init_without_apply) {
     //     llama_lora_adapter_clear(lctx);
@@ -227,6 +348,10 @@ ProstT5::ProstT5(ProstT5Model& model, int threads) : model(model) {
 
 ProstT5::~ProstT5() {
     llama_free(ctx);
+}
+
+bool ProstT5::outputsProfile() const {
+    return profile_output;
 }
 
 std::string ProstT5::predict(const std::string& aa) {
@@ -283,6 +408,63 @@ std::string ProstT5::predict(const std::string& aa) {
         pred_len = embd_inp.size() - 1;
     }
     encode(ctx, embd_inp, pred_len, aa.length(), result);
+    return result;
+}
+
+std::string ProstT5::predictProfile(const std::string& aa) {
+    std::string result;
+    const llama_vocab * vocab = llama_model_get_vocab(model.model);
+    std::vector<llama_token> embd_inp;
+    embd_inp.reserve(aa.length() + 2);
+
+    auto token_from_aa = [&](char aa_char) -> llama_token {
+        const char upper = static_cast<char>(toupper(aa_char));
+        std::string piece(1, upper);
+        llama_token token = token_from_piece(vocab, piece, false);
+        if (token != LLAMA_TOKEN_NULL) {
+            return token;
+        }
+        std::string sp_piece("▁");
+        sp_piece.append(1, upper);
+        return token_from_piece(vocab, sp_piece, false);
+    };
+
+    llama_token start_token = token_from_piece(vocab, "<AA2fold>", true);
+    const bool add_start_end = start_token != LLAMA_TOKEN_NULL;
+    if (add_start_end) {
+        embd_inp.emplace_back(start_token);
+    }
+
+    llama_token unk_aa = token_from_aa('X');
+    if (unk_aa == LLAMA_TOKEN_NULL) {
+        unk_aa = token_from_piece(vocab, "<unk>", true);
+    }
+    if (unk_aa == LLAMA_TOKEN_NULL) {
+        return result;
+    }
+    for (size_t i = 0; i < aa.length(); ++i) {
+        llama_token token = token_from_aa(aa[i]);
+        if (token == LLAMA_TOKEN_NULL) {
+            embd_inp.emplace_back(unk_aa);
+        } else {
+            embd_inp.emplace_back(token);
+        }
+    }
+    if (add_start_end) {
+        llama_token end_token = token_from_piece(vocab, "</s>", true);
+        if (end_token == LLAMA_TOKEN_NULL) {
+            end_token = unk_aa;
+        }
+        embd_inp.emplace_back(end_token);
+    }
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    const uint32_t n_cls_out = llama_model_n_cls_out(model.model);
+    const bool is_modernprost = (n_cls_out == 20 && n_vocab == 28);
+    size_t pred_len = aa.length();
+    if (!is_modernprost && embd_inp.size() > 0) {
+        pred_len = embd_inp.size() - 1;
+    }
+    encode_profile(ctx, embd_inp, pred_len, aa.length(), result);
     return result;
 }
 
