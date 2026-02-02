@@ -2505,11 +2505,6 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
             return {cpu_dev, &pimpl->cpu_buft_list};
         }
         const int layer_gpu = std::upper_bound(splits.begin(), splits.begin() + n_devices(), float(il - i_gpu_start)/act_gpu_layers) - splits.begin();
-        if (layer_gpu < 0 || layer_gpu >= (int) devices.size()) {
-            throw std::runtime_error(format(
-                "%s: layer_gpu=%d out of range (devices=%zu, il=%d, i_gpu_start=%d, act_gpu_layers=%d)",
-                __func__, layer_gpu, devices.size(), il, i_gpu_start, act_gpu_layers));
-        }
         auto * dev = devices.at(layer_gpu);
         LLAMA_LOG_DEBUG("load_tensors: layer %3d assigned to device %s, is_swa = %d\n", il, ggml_backend_dev_name(dev), is_swa);
         return {dev, &pimpl->gpu_buft_list.at(dev)};
