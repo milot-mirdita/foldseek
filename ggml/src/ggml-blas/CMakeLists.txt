@@ -73,19 +73,15 @@ if (BLAS_FOUND)
     message(STATUS "BLAS found, Includes: ${BLAS_INCLUDE_DIRS}")
 
     target_compile_options(ggml-blas PRIVATE ${BLAS_LINKER_FLAGS})
-    # GCC on apple complains about vector conversions
-    if (APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(ggml-blas PRIVATE -flax-vector-conversions)
-    endif ()
 
-    if (${BLAS_INCLUDE_DIRS} MATCHES "mkl" AND (${GGML_BLAS_VENDOR} MATCHES "Generic" OR ${GGML_BLAS_VENDOR} MATCHES "Intel"))
+    if ("${BLAS_INCLUDE_DIRS}" MATCHES "mkl" AND (${GGML_BLAS_VENDOR} MATCHES "Generic" OR ${GGML_BLAS_VENDOR} MATCHES "Intel"))
         add_compile_definitions(GGML_BLAS_USE_MKL)
     endif()
 
     target_link_libraries     (ggml-blas PRIVATE ${BLAS_LIBRARIES})
     target_include_directories(ggml-blas PRIVATE ${BLAS_INCLUDE_DIRS})
 else()
-    message(ERROR "BLAS not found, please refer to "
-                  "https://cmake.org/cmake/help/latest/module/FindBLAS.html#blas-lapack-vendors"
-                  " to set correct GGML_BLAS_VENDOR")
+    message(FATAL_ERROR "BLAS not found, please refer to "
+                        "https://cmake.org/cmake/help/latest/module/FindBLAS.html#blas-lapack-vendors"
+                        " to set correct GGML_BLAS_VENDOR")
 endif()
