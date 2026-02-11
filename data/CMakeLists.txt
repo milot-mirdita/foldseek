@@ -11,6 +11,7 @@ set(COMPILED_RESOURCES
         structurerbh.sh
         structdatabases.sh
         mat3di.out
+        mat12st.out
         encoder_weights_3di.kerasify
         evalue_nn.kerasify
         main.js
