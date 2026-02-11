@@ -27,6 +27,7 @@ public:
 
     static const int DBTYPE_CA_ALPHA;
     static const int DBTYPE_TMSCORE;
+    static const unsigned int DBTYPE_EXTENDED_3DI_12ST;
 
     // Foldseek specific extended db types
     // mmseqs allocates upwards from 1<<1, child projects should allocate downwards from 1<<14
@@ -198,6 +199,7 @@ public:
     PARAMETER(PARAM_STRUCTTY_SS)
     PARAMETER(PARAM_CANDIDATE_SEEDS)
     PARAMETER(PARAM_REFINE_SEEDS)
+    PARAMETER(PARAM_SUBMAT_12ST_SCALE)
 
     float tmScoreThr;
     int tmScoreThrMode;
@@ -240,6 +242,7 @@ public:
     bool structtyShowStructure;
     int candidateSeeds;
     int refineSeeds;
+    float submat12stScale;
 
     static std::vector<int> getOutputFormat(
         int formatMode, const std::string &outformat, bool &needSequences, bool &need3Di, bool &needBacktrace, bool &needFullHeaders,
