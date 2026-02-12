@@ -15,20 +15,18 @@ EvalueNeuralNet::EvalueNeuralNet(size_t dbResCount, BaseMatrix* subMat) : subMat
         out = Tensor(2);
 }
 
-std::pair<double, double> EvalueNeuralNet::predictMuLambda(unsigned char * seq, unsigned int L){
-    for(int i = 0; i < subMat->alphabetSize; i++){
-        in.data_[i] = 0;
+std::pair<double, double> EvalueNeuralNet::predictMuLambda(unsigned char *, unsigned int L){
+    if (L < 1) {
+        return std::make_pair(0.188743, -2.412505); // global means as fallback
     }
-    for (unsigned int i = 0; i < L; i++) {
-        in.data_[seq[i]]++; ;
-    }
-    in.data_[subMat->alphabetSize] = L;
-    encoder.Apply(&in, &out);
-    // used to normalize the output
-    double mu1 = 0.17518475184751847;
-    double sigma1 = 0.03260331312698818;
-    double mu2 = -2.5569312493124934;
-    double sigmal2 = 0.4353169278257701;
-    return std::make_pair(out.data_[0]*sigma1+mu1,
-                          out.data_[1]*sigmal2+mu2);
+    const double logL = std::log(static_cast<double>(L));
+    // μ(L) = a + b log(L)
+    const double mu =
+        -0.723212
+        - 0.321864 * logL;
+    // λ(L) = c + d / sqrt(L)
+    const double lambda =
+        0.118086
+        + 0.889118 / std::sqrt(static_cast<double>(L));
+    return std::make_pair(lambda, mu);
 }
