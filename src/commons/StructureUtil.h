@@ -16,11 +16,11 @@ public:
                 & LocalParameters::DBTYPE_EXTENDED_3DI_12ST) != 0;
     }
 
-    // Mask 12st character sequences where 3DI is D/V/P and 12st is F/G/H
+    // Mask 12st character sequences where 3DI is D/V/P and 12st is G/H/I
     static inline void mask12StByDVP(char *seq3Di, char *seq12St, size_t len) {
         for (size_t i = 0; i < len; i++) {
             if ((seq3Di[i] == 'D' || seq3Di[i] == 'V' || seq3Di[i] == 'P') &&
-                (seq12St[i] == 'F' || seq12St[i] == 'G' || seq12St[i] == 'H')) {
+                (seq12St[i] == 'G' || seq12St[i] == 'H' || seq12St[i] == 'I')) {
                 seq12St[i] = 'X';
             }
         }
