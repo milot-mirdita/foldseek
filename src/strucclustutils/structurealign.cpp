@@ -392,7 +392,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
                 unsigned int querySeqLen = q3DiDbr->sequenceReader->getSeqLen(queryId);
                 const char *querySeq3Di21 = querySeq3Di;
                     if (query3Di12St) {
-                    StructureUtil::split3Di12St(querySeq3Di, querySeqLen, qSeq3Di21Buf, qSeq12StBuf, subMat3Di, *subMat12St);
+                    StructureUtil::split3Di12St(querySeq3Di, querySeqLen, qSeq3Di21Buf, qSeq12StBuf, subMat3Di, *subMat12St, true);
                     querySeq3Di21 = qSeq3Di21Buf.data();
                     qSeq12St->mapSequence(id, queryKey, qSeq12StBuf.data(), querySeqLen);
                 }

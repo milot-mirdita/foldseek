@@ -16,8 +16,15 @@ public:
                 & LocalParameters::DBTYPE_EXTENDED_3DI_12ST) != 0;
     }
 
-    // Mask 12st character sequences where 3DI is D/V/P and 12st is G/H/I
-    static inline void mask12StByDVP(char *seq3Di, char *seq12St, size_t len) {
+    // Mask redundant 12st positions for query sequences only.
+    // 3Di states D/V/P and 12st states G/H/I both indicate "no structural
+    // neighbor found", so they encode the same lack-of-contact signal.
+    // Masking the 12st character to 'X' at these positions removes the
+    // redundancy.
+    static inline void mask12StSeqs(char *seq3Di, char *seq12St, size_t len, bool isQuery) {
+        if (!isQuery) { // only mask the query sequence
+            return;
+        }
         for (size_t i = 0; i < len; i++) {
             if ((seq3Di[i] == 'D' || seq3Di[i] == 'V' || seq3Di[i] == 'P') &&
                 (seq12St[i] == 'G' || seq12St[i] == 'H' || seq12St[i] == 'I')) {
@@ -30,7 +37,8 @@ public:
                                      std::vector<char> &seq3di,
                                      std::vector<char> &seq12st,
                                      const BaseMatrix &subMat3Di,
-                                     const BaseMatrix &subMat12St) {
+                                     const BaseMatrix &subMat12St,
+                                     const bool isQuery=false) {
         if (seq3di.size() < len) {
             seq3di.resize(len);
         }
@@ -44,7 +52,7 @@ public:
             seq3di[i] = subMat3Di.num2aa[state3di];
             seq12st[i] = subMat12St.num2aa[state12st];
         }
-        mask12StByDVP(seq3di.data(), seq12st.data(), len);
+        mask12StSeqs(seq3di.data(), seq12st.data(), len, isQuery);
     }
 
     static std::string getIndexWithSuffix(std::string db, const std::string &suffix) {
