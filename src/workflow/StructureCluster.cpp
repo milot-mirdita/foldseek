@@ -208,6 +208,7 @@ int structurecluster(int argc, const char **argv, const Command& command) {
         par.seqIdThr = (float) Parameters::CLUST_HASH_DEFAULT_MIN_SEQ_ID / 100.0f;
         cmd.addVariable("DETECTREDUNDANCY_PAR", par.createParameterString(par.clusthash).c_str());
         par.seqIdThr = seqIdThr;
+        par.useAuxScoring = par.ss12st;
         cmd.addVariable("PREFILTER_PAR", par.createParameterString(par.prefilter).c_str());
         std::string program = tmpDir + "/clustering.sh";
         FileUtil::writeFile(program, structurecluster_sh, structurecluster_sh_len);

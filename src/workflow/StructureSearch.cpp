@@ -99,6 +99,7 @@ int structuresearch(int argc, const char **argv, const Command &command) {
     const bool isIndex = PrefilteringIndexReader::searchForIndex(target).empty() == false;
     cmd.addVariable("INDEXEXT", isIndex ? ".idx" : NULL);
     par.compBiasCorrectionScale = 0.15;
+    par.useAuxScoring = par.ss12st;
     cmd.addVariable("PREFILTER_PAR", par.createParameterString(par.prefilter).c_str());
     double prevEvalueThr = par.evalThr;
     par.evalThr = std::numeric_limits<double>::max();
