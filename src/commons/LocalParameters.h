@@ -202,6 +202,7 @@ public:
     PARAMETER(PARAM_REFINE_SEEDS)
     PARAMETER(PARAM_SUBMAT_12ST_SCALE)
     PARAMETER(PARAM_SS_12ST)
+    PARAMETER(PARAM_USE_REVERSE_SCORE)
 
     float tmScoreThr;
     int tmScoreThrMode;
@@ -246,6 +247,7 @@ public:
     int refineSeeds;
     float submat12stScale;
     int ss12st;
+    int useReverseScore;
 
     static std::vector<int> getOutputFormat(
         int formatMode, const std::string &outformat, bool &needSequences, bool &need3Di, bool &needBacktrace, bool &needFullHeaders,

@@ -43,7 +43,7 @@ int alignStructure(StructureSmithWaterman & structureSmithWaterman,
                    unsigned int querySeqLen, unsigned int targetSeqLen,
                    EvalueNeuralNet & evaluer, std::pair<double, double> muLambda,
                    Matcher::result_t & res, std::string & backtrace,
-                   Parameters & par) {
+                   Parameters & par, bool useReverseScore) {
 
     float seqId = 0.0;
     backtrace.clear();
@@ -62,15 +62,16 @@ int alignStructure(StructureSmithWaterman & structureSmithWaterman,
         return -1;
     }
 
-    StructureSmithWaterman::s_align revAlign;
-    //if(structureSmithWaterman.isProfileSearch()){
-    //    revAlign.score1 = 0;
-    //} else {
-    revAlign = reverseStructureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence,
-                                                                  targetSeqLen, par.gapOpen.values.aminoacid(),
-                                                                  par.gapExtend.values.aminoacid(), querySeqLen / 2, db12StSeq);
-    //}
-    int32_t score = static_cast<int32_t>(align.score1) - static_cast<int32_t>(revAlign.score1);
+    int32_t score;
+    if (useReverseScore) {
+        StructureSmithWaterman::s_align revAlign;
+        revAlign = reverseStructureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence,
+                                                                      targetSeqLen, par.gapOpen.values.aminoacid(),
+                                                                      par.gapExtend.values.aminoacid(), querySeqLen / 2, db12StSeq);
+        score = static_cast<int32_t>(align.score1) - static_cast<int32_t>(revAlign.score1);
+    } else {
+        score = static_cast<int32_t>(align.score1);
+    }
     align.evalue = evaluer.computeEvalueCorr(score, muLambda.first, muLambda.second);
     hasLowerEvalue = align.evalue > par.evalThr;
     if (hasLowerEvalue) {
@@ -125,7 +126,7 @@ int computeAlternativeAlignment(StructureSmithWaterman & structureSmithWaterman,
                                 unsigned int querySeqLen, unsigned int targetSeqLen,
                                 EvalueNeuralNet & evaluer, std::pair<double, double> muLambda,
                                 Matcher::result_t & result, Matcher::result_t & altRes,
-                                std::string & backtrace, Parameters & par) {
+                                std::string & backtrace, Parameters & par, bool useReverseScore) {
     const unsigned char xAAIndex = tSeqAA.subMat->aa2num[static_cast<int>('X')];
     const unsigned char x3DiIndex = tSeq3Di.subMat->aa2num[static_cast<int>('X')];
     for (int pos = result.dbStartPos; pos < result.dbEndPos; ++pos) {
@@ -137,7 +138,7 @@ int computeAlternativeAlignment(StructureSmithWaterman & structureSmithWaterman,
     }
     if (alignStructure(structureSmithWaterman, reverseStructureSmithWaterman,
                        tSeqAA, tSeq3Di, tSeq12St, querySeqLen, targetSeqLen,
-                       evaluer, muLambda, altRes, backtrace, par) == -1) {
+                       evaluer, muLambda, altRes, backtrace, par, useReverseScore) == -1) {
         return -1;
     }
     if (Alignment::checkCriteria(altRes, false, par.evalThr, par.seqIdThr, par.alnLenThr, par.covMode, par.covThr)) {
@@ -457,7 +458,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
                     if(alignStructure(structureSmithWaterman, reverseStructureSmithWaterman,
                                       tSeqAA, tSeq3Di, use12StScoring ? tSeq12St.get() : NULL,
                                       querySeqLen, targetSeqLen,
-                                      evaluer, muLambda, res, backtrace, par) == -1){
+                                      evaluer, muLambda, res, backtrace, par, par.useReverseScore) == -1){
                         rejected++;
                         continue;
                     }
@@ -509,7 +510,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
                                                            tSeqAA, tSeq3Di, use12StScoring ? tSeq12St.get() : NULL,
                                                            querySeqLen, targetSeqLen,
                                                            evaluer, muLambda, res, altRes,
-                                                           backtrace, par) == -1) {
+                                                           backtrace, par, par.useReverseScore) == -1) {
                                 moreAltAli = false;
                                 continue;
                             }
