@@ -180,6 +180,7 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
 
     bool target3Di12St = StructureUtil::is3Di12StDb(t3DiDbr->sequenceReader->getDbtype());
     bool query3Di12St  = StructureUtil::is3Di12StDb(qdbr3Di.sequenceReader->getDbtype());
+    bool use12StScoring = par.ss12st && query3Di12St && target3Di12St;
 
     bool needTMaligner = (par.tmScoreThr > 0);
     bool needLDDT = (par.lddtThr > 0);
@@ -270,7 +271,7 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
         }
     }
     int8_t * tinySubMat12St = NULL;
-    if (query3Di12St || target3Di12St) {
+    if (use12StScoring) {
         // SSW uses subMat3Di.alphabetSize as stride for all matrices including 12st
         int stride = subMat3Di.alphabetSize;
         tinySubMat12St = (int8_t*) mem_align(ALIGN_INT, stride * stride * sizeof(int8_t));
@@ -305,16 +306,18 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
         std::vector<char> qSeq12StBuf;
         std::vector<char> tSeq3Di21Buf;
         std::vector<char> tSeq12StBuf;
-        if (query3Di12St || target3Di12St) {
-            if (query3Di12St) {
+        if (query3Di12St) {
+            qSeq3Di21Buf.reserve(par.maxSeqLen);
+            qSeq12StBuf.reserve(par.maxSeqLen);
+            if (use12StScoring) {
                 qSeq12St.reset(new Sequence(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) subMat12St, 0, false, par.compBiasCorrection));
-                qSeq3Di21Buf.reserve(par.maxSeqLen);
-                qSeq12StBuf.reserve(par.maxSeqLen);
             }
-            if (target3Di12St) {
+        }
+        if (target3Di12St) {
+            tSeq3Di21Buf.reserve(par.maxSeqLen);
+            tSeq12StBuf.reserve(par.maxSeqLen);
+            if (use12StScoring) {
                 tSeq12St.reset(new Sequence(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) subMat12St, 0, false, par.compBiasCorrection));
-                tSeq3Di21Buf.reserve(par.maxSeqLen);
-                tSeq12StBuf.reserve(par.maxSeqLen);
             }
         }
         TMaligner *tmaligner = NULL;
@@ -352,7 +355,9 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
                 if (query3Di12St) {
                     StructureUtil::split3Di12St(querySeq3Di, querySeqLen, qSeq3Di21Buf, qSeq12StBuf, subMat3Di, *subMat12St, true);
                     querySeq3Di21 = qSeq3Di21Buf.data();
-                    qSeq12St->mapSequence(id, queryKey, qSeq12StBuf.data(), querySeqLen);
+                    if (use12StScoring) {
+                        qSeq12St->mapSequence(id, queryKey, qSeq12StBuf.data(), querySeqLen);
+                    }
                 }
                 qSeq3Di.mapSequence(id, queryKey, querySeq3Di21, querySeqLen);
                 qSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
@@ -372,14 +377,14 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
                 qRevSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
                 std::pair<double, double> muLambda = evaluer.predictMuLambda(qSeq3Di.numSequence, qSeq3Di.L);
                 structureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
-                                               query3Di12St ? qSeq12St.get() : NULL, tinySubMat12St);
+                                               use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL);
                 qRevSeq3Di.reverse();
                 qRevSeqAA.reverse();
-                if (query3Di12St) {
+                if (use12StScoring) {
                     qSeq12St->reverse();
                 }
                 reverseStructureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
-                                                       query3Di12St ? qSeq12St.get() : NULL, tinySubMat12St);
+                                                       use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL);
                 int passedNum = 0;
                 int rejected = 0;
                 while (*data != '\0' && passedNum < par.maxAccept && rejected < par.maxRejected) {
@@ -397,7 +402,9 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
                     if (target3Di12St) {
                         StructureUtil::split3Di12St(targetSeq3Di, targetSeqLen, tSeq3Di21Buf, tSeq12StBuf, subMat3Di, *subMat12St);
                         targetSeq3Di21 = tSeq3Di21Buf.data();
-                        tSeq12St->mapSequence(targetId, dbKey, tSeq12StBuf.data(), targetSeqLen);
+                        if (use12StScoring) {
+                            tSeq12St->mapSequence(targetId, dbKey, tSeq12StBuf.data(), targetSeqLen);
+                        }
                     }
                     tSeq3Di.mapSequence(targetId, dbKey, targetSeq3Di21, targetSeqLen);
                     tSeqAA.mapSequence(targetId, dbKey, targetSeqAA, targetSeqLen);
