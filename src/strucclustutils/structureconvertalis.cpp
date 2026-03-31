@@ -397,7 +397,6 @@ int structureconvertalis(int argc, const char **argv, const Command &command) {
         }
     }
 
-
     bool queryNucs = Parameters::isEqualDbtype(qDbr.sequenceReader->getDbtype(), Parameters::DBTYPE_NUCLEOTIDES);
     bool targetNucs = Parameters::isEqualDbtype(tDbr->sequenceReader->getDbtype(), Parameters::DBTYPE_NUCLEOTIDES);
     if (needSequenceDB) {
@@ -1108,6 +1107,44 @@ R"html(<!DOCTYPE html>
                                             result.append(SSTR(CalcProbTP::calculate(res.score)));
                                         }
                                         break;
+                                    case LocalParameters::OUTFMT_GSCORE: {
+                                        if (querySeqData == NULL) {
+                                            Debug(Debug::ERROR) << "G-score requires query AA sequence data.\n";
+                                            EXIT(EXIT_FAILURE);
+                                        }
+                                        float gscore = 0.0f;
+                                        if (lddtres.scoreLength > 0) {
+                                            std::string bt = Matcher::uncompressAlignment(res.backtrace);
+                                            int qPos = res.qStartPos;
+                                            int filteredCount = 0;
+                                            float filteredLddtSum = 0.0f;
+                                            int alignIdx = 0;
+                                            for (size_t k = 0; k < bt.size(); k++) {
+                                                if (bt[k] == 'M') {
+                                                    if (!islower(querySeqData[qPos])) {
+                                                        filteredLddtSum += lddtres.perCaLddtScore[alignIdx];
+                                                        filteredCount++;
+                                                    }
+                                                    qPos++; alignIdx++;
+                                                } else if (bt[k] == 'I') {
+                                                    qPos++;
+                                                } else if (bt[k] == 'D') {
+                                                    // gap in query, no advance
+                                                }
+                                            }
+                                            int qlenFiltered = 0;
+                                            for (unsigned int k = 0; k < res.qLen; k++) {
+                                                if (!islower(querySeqData[k])) qlenFiltered++;
+                                            }
+                                            if (filteredCount > 0 && qlenFiltered > 0) {
+                                                float lddtFiltered = filteredLddtSum / (float)filteredCount;
+                                                float coverage = (float)filteredCount / (float)qlenFiltered;
+                                                gscore = lddtFiltered * sqrtf(coverage);
+                                            }
+                                        }
+                                        result.append(SSTR(gscore));
+                                        break;
+                                    }
                                     case LocalParameters::OUTFMT_Q_COMPLEX_TMSCORE:
                                         if (!retComplex.isValid) {
                                             Debug(Debug::ERROR) << "The column qcomplextmscore is only for scorecomplex result.\n";

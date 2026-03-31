@@ -503,6 +503,7 @@ std::vector<int> LocalParameters::getOutputFormat(
         else if (outformatSplit[i].compare("qchains")==0 ){code=LocalParameters::OUTFMT_COMPLEX_QNAME;}
         else if (outformatSplit[i].compare("tchains")==0 ){code=LocalParameters::OUTFMT_COMPLEX_TNAME;}
         else if (outformatSplit[i].compare("interfacelddt")==0 ){code=LocalParameters::OUTFMT_INTERFACE_LDDT;}
+        else if (outformatSplit[i].compare("gscore") == 0) { needSequences = true; needQCa = true; needTCa = true; needLDDT = true; needBacktrace = true; code = LocalParameters::OUTFMT_GSCORE; }
         else {
             Debug(Debug::ERROR) << "Format code " << outformatSplit[i] << " does not exist.";
             EXIT(EXIT_FAILURE);
