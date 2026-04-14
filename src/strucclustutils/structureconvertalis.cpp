@@ -450,6 +450,20 @@ int structureconvertalis(int argc, const char **argv, const Command &command) {
         }
     }
 
+    // Build byte-to-ASCII remap table for interleaved DBs (e.g. foldseek _ss)
+    unsigned char rawToAscii[256];
+    bool needsSeqRemap = false;
+    {
+        int seqDbType = qDbr.sequenceReader->getDbtype();
+        const Sequence::SeqAuxInfo *auxInfo = Sequence::getAuxInfo(seqDbType);
+        if (auxInfo != NULL && auxInfo->primaryRemap != NULL) {
+            needsSeqRemap = true;
+            for (int k = 0; k < 256; k++) {
+                rawToAscii[k] = subMat->num2aa[auxInfo->primaryRemap[k]];
+            }
+        }
+    }
+
     DBReader<unsigned int> alnDbr(par.db3.c_str(), par.db3Index.c_str(), par.threads, DBReader<unsigned int>::USE_INDEX|DBReader<unsigned int>::USE_DATA);
     alnDbr.open(DBReader<unsigned int>::LINEAR_ACCCESS);
 
@@ -614,6 +628,13 @@ R"html(<!DOCTYPE html>
         Coordinate16 tcoords;
 
         std::string tmpBt;
+
+        std::string queryRemapBuffer;
+        std::string targetRemapBuffer;
+        if (needsSeqRemap) {
+            queryRemapBuffer.reserve(par.maxSeqLen + 1);
+            targetRemapBuffer.reserve(par.maxSeqLen + 1);
+        }
 #pragma omp  for schedule(dynamic, 10)
         for (size_t i = 0; i < alnDbr.getSize(); i++) {
             progress.updateProgress();
@@ -629,6 +650,13 @@ R"html(<!DOCTYPE html>
                 if(sameDB && qDbr.sequenceReader->isCompressed()){
                     queryBuffer.assign(querySeqData, querySeqLen);
                     querySeqData = (char*) queryBuffer.c_str();
+                }
+                if (needsSeqRemap) {
+                    queryRemapBuffer.resize(querySeqLen);
+                    for (size_t ri = 0; ri < querySeqLen; ri++) {
+                        queryRemapBuffer[ri] = rawToAscii[static_cast<unsigned char>(querySeqData[ri])];
+                    }
+                    querySeqData = (char*) queryRemapBuffer.c_str();
                 }
                 if (queryProfile) {
                     size_t queryEntryLen = qDbr.sequenceReader->getEntryLen(qId);
@@ -811,6 +839,14 @@ R"html(<!DOCTYPE html>
                             if (needSequenceDB) {
                                 size_t tId = tDbr->sequenceReader->getId(res.dbKey);
                                 targetSeqData = tDbr->sequenceReader->getData(tId, thread_idx);
+                                if (needsSeqRemap) {
+                                    size_t tLen = tDbr->sequenceReader->getSeqLen(tId);
+                                    targetRemapBuffer.resize(tLen);
+                                    for (size_t ri = 0; ri < tLen; ri++) {
+                                        targetRemapBuffer[ri] = rawToAscii[static_cast<unsigned char>(targetSeqData[ri])];
+                                    }
+                                    targetSeqData = (char*) targetRemapBuffer.c_str();
+                                }
                                 if (targetProfile) {
                                     size_t targetEntryLen = tDbr->sequenceReader->getEntryLen(tId);
                                     Sequence::extractProfileConsensus(targetSeqData, targetEntryLen, *subMat, targetProfData);
