@@ -250,6 +250,10 @@ LocalParameters::LocalParameters() :
     result2structprofile.push_back(&PARAM_V);
     result2structprofile.push_back(&PARAM_PROFILE_OUTPUT_MODE);
 
+    // add12st
+    add12st.push_back(&PARAM_THREADS);
+    add12st.push_back(&PARAM_V);
+
     //createstructsubdb
     createstructsubdb.push_back(&PARAM_SUBDB_MODE);
     createstructsubdb.push_back(&PARAM_ID_MODE);

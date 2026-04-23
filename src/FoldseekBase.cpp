@@ -294,6 +294,14 @@ std::vector<Command> foldseekCommands = {
                 "<i:sequenceDB> <tmpDir>",
                 CITATION_SERVER | CITATION_FOLDSEEK,{{"sequenceDB", DbType::ACCESS_MODE_INPUT, DbType::NEED_DATA|DbType::NEED_HEADER, &DbValidator::sequenceDb },
                                            {"tmpDir", DbType::ACCESS_MODE_OUTPUT, DbType::NEED_DATA, &DbValidator::directory }}},
+        {"add12st",              add12st,       &localPar.add12st,             COMMAND_DATABASE_CREATION,
+                "Update database to the current Foldseek format",
+                "Moves db_ss to db_ss_old and creates a new db_ss with combined 3Di and 12-state alphabet.\n"
+                "Reconstructs backbone from CA coordinates using PULCHRA to predict 12-state sequences.\n"
+                "foldseek add12st db\n\n",
+                "Michel van Kempen",
+                "<i:structureDB>",
+                CITATION_FOLDSEEK, {{"structureDB", DbType::ACCESS_MODE_INPUT, DbType::NEED_DATA, &DbValidator::sequenceDb }}},
         {"createclusearchdb", createclusearchdb,   &localPar.createclusearchdb,      COMMAND_DATABASE_CREATION,
                 "Build a searchable cluster database allowing for faster searches",
                 "# cluster database and build a searchable db\n"

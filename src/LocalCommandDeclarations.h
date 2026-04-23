@@ -32,5 +32,6 @@ extern int makepaddeddb(int argc, const char **argv, const Command& command);
 extern int result2structprofile(int argc, const char **argv, const Command& command);
 extern int createstructsubdb(int argc, const char **argv, const Command& command);
 extern int lolalign(int argc, const char **argv, const Command& command);
+extern int add12st(int argc, const char **argv, const Command& command);
 extern int structtyview(int argc, const char **argv, const Command& command);
 #endif

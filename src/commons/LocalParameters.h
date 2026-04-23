@@ -157,6 +157,7 @@ public:
     std::vector<MMseqsParameter *> createstructsubdb;
     std::vector<MMseqsParameter *> lolalign;
     std::vector<MMseqsParameter *> structtyworkflow;
+    std::vector<MMseqsParameter *> add12st;
 
     PARAMETER(PARAM_TMSCORE_THRESHOLD)
     PARAMETER(PARAM_TMSCORE_THRESHOLD_MODE)

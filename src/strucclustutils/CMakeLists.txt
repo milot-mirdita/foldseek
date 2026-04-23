@@ -20,6 +20,7 @@ set(strucclustutils_source_files
         strucclustutils/makepaddeddb.cpp
         strucclustutils/result2structprofile.cpp
         strucclustutils/createstructsubdb.cpp
+        strucclustutils/add12st.cpp
         strucclustutils/LoLAlign.cpp
         strucclustutils/LoLAlign.h
         PARENT_SCOPE
