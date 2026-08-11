@@ -163,7 +163,7 @@ public:
      mat is the pointer to the array {2, -2, -2, -2, -2, 2, -2, -2, -2, -2, 2, -2, -2, -2, -2, 2}
      */
     void ssw_init(Sequence *q_aa, Sequence *q_3di, const int8_t *mat_aa, const int8_t *mat_3di, const BaseMatrix *m,
-                  Sequence *q_12st = NULL, const int8_t *mat_12st = NULL);
+                  Sequence *q_12st = NULL, const int8_t *mat_12st = NULL, const BaseMatrix *m12st = NULL);
 
 
     static char cigar_int_to_op (uint32_t cigar_int);
@@ -250,8 +250,10 @@ private:
         bool has12St;
         int8_t* rev_alignment_aa_profile;
         int8_t* rev_alignment_3di_profile;
+        int8_t* rev_alignment_12st_profile;
         int8_t* alignment_aa_profile;
         int8_t* alignment_3di_profile;
+        int8_t* alignment_12st_profile;
         bool isProfile;
         // Memory layout of if mat + queryProfile is qL * AA
         //    Query length
@@ -375,7 +377,9 @@ private:
 #ifdef GAP_POS_SCORING
                                              uint8_t *gDelOpen, uint8_t *gDelClose, uint8_t *gIns,
 #endif
-                                             int32_t band_width, const int8_t *mat_aa, int32_t nAA, const int8_t *mat_3di, int32_t n3Di);
+                                             int32_t band_width, const int8_t *mat_aa, int32_t nAA, const int8_t *mat_3di, int32_t n3Di,
+                                             const unsigned char *db_12st_sequence = NULL, const int8_t *query_12st_sequence = NULL,
+                                             const int8_t *compositionBias12St = NULL, const int8_t *mat_12st = NULL, int32_t n12St = 0);
 
     void computerBacktrace(s_profile * query, const unsigned char * db_sequence,
                            s_align & alignment, std::string & backtrace, uint32_t & aaIds, size_t & mStatesCnt);

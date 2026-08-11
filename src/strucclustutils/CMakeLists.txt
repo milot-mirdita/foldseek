@@ -19,8 +19,10 @@ set(strucclustutils_source_files
         strucclustutils/expandmultimer.cpp
         strucclustutils/makepaddeddb.cpp
         strucclustutils/result2structprofile.cpp
-        strucclustutils/createstructsubdb.cpp
         strucclustutils/add12st.cpp
+        strucclustutils/StructureProfileUtils.cpp
+        strucclustutils/StructureProfileUtils.h
+        strucclustutils/createstructsubdb.cpp
         strucclustutils/LoLAlign.cpp
         strucclustutils/LoLAlign.h
         PARENT_SCOPE

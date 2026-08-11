@@ -442,25 +442,37 @@ int structureconvertalis(int argc, const char **argv, const Command &command) {
 
     bool query3DiProfile = false;
     bool target3DiProfile = false;
+    bool query3Di12St = false;
+    bool target3Di12St = false;
+    SubstitutionMatrix *subMat12St = NULL;
     if (need3DiDB) {
         query3DiProfile = Parameters::isEqualDbtype(q3DiDbr->sequenceReader->getDbtype(), Parameters::DBTYPE_HMM_PROFILE);
         target3DiProfile = Parameters::isEqualDbtype(t3DiDbr->sequenceReader->getDbtype(), Parameters::DBTYPE_HMM_PROFILE);
-        if (needEvaluer && evaluer == NULL) {
+        query3Di12St = StructureUtil::is3Di12StDb(q3DiDbr->sequenceReader->getDbtype());
+        target3Di12St = StructureUtil::is3Di12StDb(t3DiDbr->sequenceReader->getDbtype());
+        if (evaluer == NULL) {
             evaluer = new EvalueComputation(t3DiDbr->sequenceReader->getAminoAcidDBSize(), subMat, gapOpen, gapExtend);
         }
-    }
-
-    // Build byte-to-ASCII remap table for interleaved DBs (e.g. foldseek _ss)
-    unsigned char rawToAscii[256];
-    bool needsSeqRemap = false;
-    {
-        int seqDbType = qDbr.sequenceReader->getDbtype();
-        const Sequence::SeqAuxInfo *auxInfo = Sequence::getAuxInfo(seqDbType);
-        if (auxInfo != NULL && auxInfo->primaryRemap != NULL) {
-            needsSeqRemap = true;
-            for (int k = 0; k < 256; k++) {
-                rawToAscii[k] = subMat->num2aa[auxInfo->primaryRemap[k]];
+        if (query3Di12St || target3Di12St) {
+            std::string mat12st;
+            for (size_t i = 0; i < par.substitutionMatrices.size(); i++) {
+                if (par.substitutionMatrices[i].name == "12st.out") {
+                    std::string matrixData(
+                        (const char *) par.substitutionMatrices[i].subMatData,
+                        par.substitutionMatrices[i].subMatDataLen
+                    );
+                    std::string matrixName = par.substitutionMatrices[i].name;
+                    char *serializedMatrix = BaseMatrix::serialize(matrixName, matrixData);
+                    mat12st.assign(serializedMatrix);
+                    free(serializedMatrix);
+                    break;
+                }
             }
+            if (mat12st.empty()) {
+                Debug(Debug::ERROR) << "Cannot find 12st substitution matrix\n";
+                EXIT(EXIT_FAILURE);
+            }
+            subMat12St = new SubstitutionMatrix(mat12st.c_str(), par.submat12stScale, par.scoreBias);
         }
     }
 
@@ -609,6 +621,11 @@ R"html(<!DOCTYPE html>
         std::string query3DiBuffer;
         query3DiBuffer.reserve(1024);
 
+        std::vector<char> query3DiDecoded;
+        std::vector<char> query12StDecoded;
+        std::vector<char> target3DiDecoded;
+        std::vector<char> target12StDecoded;
+
         std::string queryHeaderBuffer;
         queryHeaderBuffer.reserve(1024);
 
@@ -628,13 +645,6 @@ R"html(<!DOCTYPE html>
         Coordinate16 tcoords;
 
         std::string tmpBt;
-
-        std::string queryRemapBuffer;
-        std::string targetRemapBuffer;
-        if (needsSeqRemap) {
-            queryRemapBuffer.reserve(par.maxSeqLen + 1);
-            targetRemapBuffer.reserve(par.maxSeqLen + 1);
-        }
 #pragma omp  for schedule(dynamic, 10)
         for (size_t i = 0; i < alnDbr.getSize(); i++) {
             progress.updateProgress();
@@ -650,13 +660,6 @@ R"html(<!DOCTYPE html>
                 if(sameDB && qDbr.sequenceReader->isCompressed()){
                     queryBuffer.assign(querySeqData, querySeqLen);
                     querySeqData = (char*) queryBuffer.c_str();
-                }
-                if (needsSeqRemap) {
-                    queryRemapBuffer.resize(querySeqLen);
-                    for (size_t ri = 0; ri < querySeqLen; ri++) {
-                        queryRemapBuffer[ri] = rawToAscii[static_cast<unsigned char>(querySeqData[ri])];
-                    }
-                    querySeqData = (char*) queryRemapBuffer.c_str();
                 }
                 if (queryProfile) {
                     size_t queryEntryLen = qDbr.sequenceReader->getEntryLen(qId);
@@ -678,6 +681,12 @@ R"html(<!DOCTYPE html>
                 if (queryProfile) {
                     size_t queryEntryLen = q3DiDbr->sequenceReader->getEntryLen(qId);
                     Sequence::extractProfileConsensus(query3DiData, queryEntryLen, *subMat, query3DiProfData);
+                }
+                if (query3Di12St && query3DiProfile == false) {
+                    StructureUtil::split3Di12St(
+                        query3DiData, query3DiLen, query3DiDecoded, query12StDecoded, *subMat, *subMat12St, true
+                    );
+                    query3DiData = query3DiDecoded.data();
                 }
             }
 
@@ -839,14 +848,6 @@ R"html(<!DOCTYPE html>
                             if (needSequenceDB) {
                                 size_t tId = tDbr->sequenceReader->getId(res.dbKey);
                                 targetSeqData = tDbr->sequenceReader->getData(tId, thread_idx);
-                                if (needsSeqRemap) {
-                                    size_t tLen = tDbr->sequenceReader->getSeqLen(tId);
-                                    targetRemapBuffer.resize(tLen);
-                                    for (size_t ri = 0; ri < tLen; ri++) {
-                                        targetRemapBuffer[ri] = rawToAscii[static_cast<unsigned char>(targetSeqData[ri])];
-                                    }
-                                    targetSeqData = (char*) targetRemapBuffer.c_str();
-                                }
                                 if (targetProfile) {
                                     size_t targetEntryLen = tDbr->sequenceReader->getEntryLen(tId);
                                     Sequence::extractProfileConsensus(targetSeqData, targetEntryLen, *subMat, targetProfData);
@@ -861,6 +862,13 @@ R"html(<!DOCTYPE html>
                                 if (target3DiProfile) {
                                     size_t targetEntryLen = t3DiDbr->sequenceReader->getEntryLen(tId);
                                     Sequence::extractProfileConsensus(target3DiData, targetEntryLen, *subMat, target3DiProfData);
+                                }
+                                if (target3Di12St && target3DiProfile == false) {
+                                    const size_t target3DiLen = t3DiDbr->sequenceReader->getSeqLen(tId);
+                                    StructureUtil::split3Di12St(
+                                        target3DiData, target3DiLen, target3DiDecoded, target12StDecoded, *subMat, *subMat12St, false
+                                    );
+                                    target3DiData = target3DiDecoded.data();
                                 }
                             }
 
@@ -922,16 +930,11 @@ R"html(<!DOCTYPE html>
                                     case Parameters::OUTFMT_ALNLEN:
                                         result.append(SSTR(alnLen));
                                         break;
-                                    case Parameters::OUTFMT_RAW:
-                                        if (isLolAlign) {
-                                            // LoL-align: score is prob*10000, not a bit score; emit the probability.
-                                            char lbuf[32];
-                                            int n = snprintf(lbuf, sizeof(lbuf), "%.4f", res.score / 10000.0f);
-                                            result.append(lbuf, n);
-                                        } else {
-                                            result.append(SSTR(static_cast<int>(evaluer->computeRawScoreFromBitScore(res.score) + 0.5)));
-                                        }
+                                    case Parameters::OUTFMT_RAW: {
+                                        const int rawScore = (res.queryOrfStartPos != -1) ? res.queryOrfStartPos : res.score;
+                                        result.append(SSTR(rawScore));
                                         break;
+                                    }
                                     case Parameters::OUTFMT_BITS:
                                         if (isLolAlign) {
                                             char lbuf[32];
@@ -975,6 +978,16 @@ R"html(<!DOCTYPE html>
                                             result.append(target3DiProfData.c_str(), res.dbLen);
                                         } else {
                                             result.append(target3DiData, res.dbLen);
+                                        }
+                                        break;
+                                    case LocalParameters::OUTFMT_Q12ST:
+                                        if (query3Di12St && query3DiProfile == false) {
+                                            result.append(query12StDecoded.data(), res.qLen);
+                                        }
+                                        break;
+                                    case LocalParameters::OUTFMT_T12ST:
+                                        if (target3Di12St && target3DiProfile == false) {
+                                            result.append(target12StDecoded.data(), res.dbLen);
                                         }
                                         break;
                                     case Parameters::OUTFMT_QHEADER:
@@ -1293,7 +1306,7 @@ R"html(<!DOCTYPE html>
                     }
                     case Parameters::FORMAT_ALIGNMENT_SAM: {
                         bool strand = res.qEndPos > res.qStartPos;
-                        int rawScore = static_cast<int>(evaluer->computeRawScoreFromBitScore(res.score) + 0.5);
+                        int rawScore = (res.queryOrfStartPos != -1) ? res.queryOrfStartPos : res.score;
                         uint32_t mapq = -4.343 * log(exp(static_cast<double>(-rawScore)));
                         mapq = (uint32_t) (mapq + 4.99);
                         mapq = mapq < 254 ? mapq : 254;
@@ -1505,6 +1518,3 @@ R"html(<!DOCTYPE html>
 
     return EXIT_SUCCESS;
 }
-
-
-

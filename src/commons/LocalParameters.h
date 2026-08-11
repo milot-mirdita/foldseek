@@ -48,6 +48,10 @@ public:
     static const int STRUCTTY_MODE_ALIGN_FS = 7;
     static const int STRUCTTY_MODE_ALIGN_NEAR = 8;
 
+    static const int EVALUE_NN_MODE_LEGACY = 0;
+    static const int EVALUE_NN_MODE_WINDOW = 1;
+    static const int EVALUE_NN_MODE_LEGACY_12ST = 2;
+
     static const int TMSCORE_THRESHOLD_MODE_ALIGNMENT = 0;
     static const int TMSCORE_THRESHOLD_MODE_QUERY = 1;
     static const int TMSCORE_THRESHOLD_MODE_TARGET = 2;
@@ -100,6 +104,8 @@ public:
     static const int OUTFMT_COMPLEX_QNAME = 67;
     static const int OUTFMT_COMPLEX_TNAME = 68;
     static const int OUTFMT_GSCORE = 69;
+    static const int OUTFMT_Q12ST = 70;
+    static const int OUTFMT_T12ST = 71;
 
     static const int DB_EXTRACT_MODE_CHAIN = 0;
     static const int DB_EXTRACT_MODE_INTERFACE = 1;
@@ -204,6 +210,8 @@ public:
     PARAMETER(PARAM_SUBMAT_12ST_SCALE)
     PARAMETER(PARAM_SS_12ST)
     PARAMETER(PARAM_USE_REVERSE_SCORE)
+    PARAMETER(PARAM_EVALUE_NN_MODE)
+    PARAMETER(PARAM_EVALUE_12ST_PROFILE_COMP)
 
     float tmScoreThr;
     int tmScoreThrMode;
@@ -249,6 +257,8 @@ public:
     float submat12stScale;
     int ss12st;
     int useReverseScore;
+    int evalueNNMode;
+    int evalue12StProfileComp;
 
     static std::vector<int> getOutputFormat(
         int formatMode, const std::string &outformat, bool &needSequences, bool &need3Di, bool &needBacktrace, bool &needFullHeaders,

@@ -49,7 +49,14 @@ LocalParameters::LocalParameters() :
         PARAM_MULTIDOMAIN(PARAM_MULTIDOMAIN_ID, "--lolalign-multidomain", "MultiDomain Mode", "MultiDomain Mode LoLalign", typeid(int), (void *) &multiDomain, "^[0-1]{1}$"),
         PARAM_SUBMAT_12ST_SCALE(PARAM_SUBMAT_12ST_SCALE_ID, "--submat-12st-scale", "12st substitution matrix scale", "Scaling factor for 12st substitution matrix", typeid(float), (void *) &submat12stScale, "^[0-9]*(\\.[0-9]+)?$"),
         PARAM_SS_12ST(PARAM_SS_12ST_ID, "--ss-12st", "Include 12-state alphabet", "Include 12-state structural alphabet in _ss database:\n0: disable\n1: enable", typeid(int), (void *) &ss12st, "^[0-1]{1}$"),
-        PARAM_USE_REVERSE_SCORE(PARAM_USE_REVERSE_SCORE_ID, "--use-reverse-score", "Use reverse score", "Subtract reverse alignment score from forward score:\n0: disable\n1: enable", typeid(int), (void *) &useReverseScore, "^[0-1]{1}$")
+        PARAM_USE_REVERSE_SCORE(PARAM_USE_REVERSE_SCORE_ID, "--use-reverse-score", "Use reverse score", "Subtract reverse alignment score from forward score:\n0: disable\n1: enable", typeid(int), (void *) &useReverseScore, "^[0-1]{1}$"),
+        PARAM_EVALUE_NN_MODE(PARAM_EVALUE_NN_MODE_ID, "--evalue-nn-mode", "E-value NN mode", "0: legacy whole-query composition NN\n1: windowed query/target composition NN\n2: legacy whole-query 3Di+12-state composition NN", typeid(int), (void *) &evalueNNMode, "^[0-2]{1}$"),
+        PARAM_EVALUE_12ST_PROFILE_COMP(PARAM_EVALUE_12ST_PROFILE_COMP_ID, "--evalue-12st-profile-comp", "12-state e-value profile composition", "Composition source for the 12-state e-value NN (--evalue-nn-mode 2) on profile queries:\n0: center/query sequence\n1: recover from profile scores", typeid(int), (void *) &evalue12StProfileComp, "^[0-1]{1}$"),
+        PARAM_VIEW_RESULTS(PARAM_VIEW_RESULTS_ID, "--view-structty", "View results with StrucTTY", "Launch StrucTTY viewer after result generation (requires a build with -DENABLE_STRUCTTY=1)",  typeid(bool), (void *) &viewResults, "", MMseqsParameter::COMMAND_ALIGN | MMseqsParameter::COMMAND_EXPERT),
+        PARAM_STRUCTTY_MODE(PARAM_STRUCTTY_MODE_ID, "--structty-mode", "StrucTTY color mode", "Color mode for the StrucTTY viewer:\n0: protein\n1: chain\n2: rainbow\n3: plddt\n4: interface\n5: conservation\n6: align\n7: align-fs\n8: align-near", typeid(int), (void *) &structtyMode, "^[0-8]{1}$", MMseqsParameter::COMMAND_ALIGN | MMseqsParameter::COMMAND_EXPERT),
+        PARAM_STRUCTTY_SS(PARAM_STRUCTTY_SS_ID, "--structty-ss", "StrucTTY secondary structure", "Show secondary structure (helix/sheet) in the StrucTTY viewer", typeid(bool), (void *) &structtyShowStructure, "", MMseqsParameter::COMMAND_ALIGN | MMseqsParameter::COMMAND_EXPERT),
+        PARAM_CANDIDATE_SEEDS(PARAM_CANDIDATE_SEEDS_ID, "--candidate-seeds", "Candidate seeds", "Number of candidate seeds to consider for expansion", typeid(int), (void *) &candidateSeeds, "^([1-9][0-9]?|100)$"),
+        PARAM_REFINE_SEEDS(PARAM_REFINE_SEEDS_ID, "--refine-seeds", "Refine seeds", "Whether to refine seeds by re-aligning top candidate seeds and picking the best one for expansion", typeid(int), (void *) &refineSeeds, "^([1-9][0-9]?|100)$")
         {
     PARAM_ALIGNMENT_MODE.description = "How to compute the alignment:\n0: automatic\n1: only score and end_pos\n2: also start_pos and cov\n3: also seq.id";
     PARAM_ALIGNMENT_MODE.regex = "^[0-3]{1}$";
@@ -160,6 +167,8 @@ LocalParameters::LocalParameters() :
     structurerescorediagonal.push_back(&PARAM_ALIGNMENT_TYPE);
     structurerescorediagonal.push_back(&PARAM_SS_12ST);
     structurerescorediagonal.push_back(&PARAM_SUBMAT_12ST_SCALE);
+    structurerescorediagonal.push_back(&PARAM_EVALUE_NN_MODE);
+    structurerescorediagonal.push_back(&PARAM_EVALUE_12ST_PROFILE_COMP);
     structurerescorediagonal = combineList(structurerescorediagonal, align);
 
     structurealign.push_back(&PARAM_TMSCORE_THRESHOLD);
@@ -171,6 +180,8 @@ LocalParameters::LocalParameters() :
     structurealign.push_back(&PARAM_SUBMAT_12ST_SCALE);
     structurealign.push_back(&PARAM_SS_12ST);
     structurealign.push_back(&PARAM_USE_REVERSE_SCORE);
+    structurealign.push_back(&PARAM_EVALUE_NN_MODE);
+    structurealign.push_back(&PARAM_EVALUE_12ST_PROFILE_COMP);
     structurealign = combineList(structurealign, align);
 
     // strucclust
@@ -190,6 +201,7 @@ LocalParameters::LocalParameters() :
     databases.push_back(&PARAM_V);
 
     samplemulambda.push_back(&PARAM_N_SAMPLE);
+    samplemulambda.push_back(&PARAM_USE_REVERSE_SCORE);
     samplemulambda.push_back(&PARAM_THREADS);
     samplemulambda.push_back(&PARAM_V);
 
@@ -377,6 +389,8 @@ LocalParameters::LocalParameters() :
     lddtThr = 0.0;
     evalThr = 10;
     sortByStructureBits = 1;
+    evalueNNMode = EVALUE_NN_MODE_LEGACY;
+    evalue12StProfileComp = 0;
     clusterSearch = 0;
     minDiagScoreThr = 30;
     minAssignedChainsThreshold = 0.0;
@@ -433,7 +447,7 @@ LocalParameters::LocalParameters() :
     citations.emplace(CITATION_PROSTT5, "Heinzinger, M., Weissenow, K., Gomez Sanchez, J., Henkel, A., Mirdita, M., Steinegger, M., and Burkhard, R. Bilingual Language Model for Protein Sequence and Structure. NAR Genomics and Bioinformatics, doi:10.1093/nargab/lqae150 (2024)");
     
     //rewrite param vals.
-    PARAM_FORMAT_OUTPUT.description = "Choose comma separated list of output columns from: query,target,evalue,gapopen,pident,fident,nident,qstart,qend,qlen\ntstart,tend,tlen,alnlen,raw,bits,cigar,qseq,tseq,q3di,t3di,qheader,theader,qaln,taln,q3dialn,t3dialn,mismatch,qcov,tcov\nqset,qsetid,tset,tsetid,taxid,taxname,taxlineage,\nlddt,lddtfull,qca,tca,t,u,qtmscore,ttmscore,alntmscore,rmsd,prob\ncomplexqtmscore,complexttmscore,complexu,complext,qcomplexcoverage,tcomplexcoverage,qchaintms,tchaintms,qchains,tchains,interfacelddt,complexassignid\n";
+    PARAM_FORMAT_OUTPUT.description = "Choose comma separated list of output columns from: query,target,evalue,gapopen,pident,fident,nident,qstart,qend,qlen\ntstart,tend,tlen,alnlen,raw,bits,cigar,qseq,tseq,q3di,t3di,q12st,t12st,qheader,theader,qaln,taln,q3dialn,t3dialn,mismatch,qcov,tcov\nqset,qsetid,tset,tsetid,taxid,taxname,taxlineage,\nlddt,lddtfull,qca,tca,t,u,qtmscore,ttmscore,alntmscore,rmsd,prob\ncomplexqtmscore,complexttmscore,complexu,complext,qcomplexcoverage,tcomplexcoverage,qchaintms,tchaintms,qchains,tchains,interfacelddt,complexassignid\n";
 
     // allow higher values for GGML debug trace
     PARAM_V.regex = "^[0-4]{1}$";
@@ -468,12 +482,15 @@ std::vector<int> LocalParameters::getOutputFormat(
         else if (outformatSplit[i].compare("tend") == 0){ code = Parameters::OUTFMT_TEND;}
         else if (outformatSplit[i].compare("tlen") == 0){ code = Parameters::OUTFMT_TLEN;}
         else if (outformatSplit[i].compare("alnlen") == 0){ code = Parameters::OUTFMT_ALNLEN;}
+        else if (outformatSplit[i].compare("raw") == 0){ needSequences = true; code = Parameters::OUTFMT_RAW;}
         else if (outformatSplit[i].compare("bits") == 0){ code = Parameters::OUTFMT_BITS;}
         else if (outformatSplit[i].compare("cigar") == 0){ needBacktrace = true; code = Parameters::OUTFMT_CIGAR;}
         else if (outformatSplit[i].compare("qseq") == 0){ needSequences = true; code = Parameters::OUTFMT_QSEQ;}
         else if (outformatSplit[i].compare("tseq") == 0){ needSequences = true; code = Parameters::OUTFMT_TSEQ;}
         else if (outformatSplit[i].compare("q3di") == 0) { need3Di = true; code = LocalParameters::OUTFMT_Q3DI; }
         else if (outformatSplit[i].compare("t3di") == 0) { need3Di = true; code = LocalParameters::OUTFMT_T3DI; }
+        else if (outformatSplit[i].compare("q12st") == 0) { need3Di = true; code = LocalParameters::OUTFMT_Q12ST; }
+        else if (outformatSplit[i].compare("t12st") == 0) { need3Di = true; code = LocalParameters::OUTFMT_T12ST; }
         else if (outformatSplit[i].compare("qheader") == 0){ needFullHeaders = true; code = Parameters::OUTFMT_QHEADER;}
         else if (outformatSplit[i].compare("theader") == 0){ needFullHeaders = true; code = Parameters::OUTFMT_THEADER;}
         else if (outformatSplit[i].compare("qaln") == 0){ needBacktrace = true; needSequences = true; code = Parameters::OUTFMT_QALN;}

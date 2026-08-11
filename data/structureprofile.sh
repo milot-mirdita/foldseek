@@ -85,6 +85,8 @@ if [ -n "$REMOVE_TMP" ]; then
         # shellcheck disable=SC2086
         "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_ss" ${VERBOSITY}
         # shellcheck disable=SC2086
+        "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_ss12" ${VERBOSITY}
+        # shellcheck disable=SC2086
         "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_h" ${VERBOSITY}
       fi
       STEP=$((STEP+1))
@@ -95,4 +97,3 @@ if [ -n "$REMOVE_TMP" ]; then
     fi
     rm -f "$TMP_PATH/structureprofile.sh"
 fi
-
