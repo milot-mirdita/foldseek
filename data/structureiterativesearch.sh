@@ -110,9 +110,15 @@ while [ "$STEP" -lt "$NUM_IT" ]; do
     # create profiles
     if [ $STEP -ne $((NUM_IT - 1)) ]; then
         if notExists "$TMP_PATH/profile_${STEP}.dbtype"; then
-            # shellcheck disable=SC2086
-            "$MMSEQS" result2profile "${QUERYDB}" "${TARGET_ALIGNMENT}${INDEXEXT}" "$TMP_PATH/aln_${STEP}" "$TMP_PATH/profile_${STEP}" ${VERBOSITY_THREADS_PAR} ${PROFILE_EVAL} \
-                || fail "Create profile died"
+            if [ -n "$SS12_ONLY_FIRST_IT" ]; then
+                # shellcheck disable=SC2086
+                FOLDSEEK_DISABLE_SS12_PROFILE=1 "$MMSEQS" result2profile "${QUERYDB}" "${TARGET_ALIGNMENT}${INDEXEXT}" "$TMP_PATH/aln_${STEP}" "$TMP_PATH/profile_${STEP}" ${VERBOSITY_THREADS_PAR} ${PROFILE_EVAL} \
+                    || fail "Create profile died"
+            else
+                # shellcheck disable=SC2086
+                "$MMSEQS" result2profile "${QUERYDB}" "${TARGET_ALIGNMENT}${INDEXEXT}" "$TMP_PATH/aln_${STEP}" "$TMP_PATH/profile_${STEP}" ${VERBOSITY_THREADS_PAR} ${PROFILE_EVAL} \
+                    || fail "Create profile died"
+            fi
         fi
     fi
 	QUERYDB="$TMP_PATH/profile_${STEP}"
@@ -135,6 +141,8 @@ if [ -n "$REMOVE_TMP" ]; then
         # shellcheck disable=SC2086
         "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_ss" ${VERBOSITY}
         # shellcheck disable=SC2086
+        "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_ss12" ${VERBOSITY}
+        # shellcheck disable=SC2086
         "$MMSEQS" rmdb "${TMP_PATH}/profile_${STEP}_h" ${VERBOSITY}
         STEP=$((STEP+1))
     done
@@ -146,4 +154,3 @@ if [ -n "$REMOVE_TMP" ]; then
     fi
     rm -f "$TMP_PATH/structureiterativesearch.sh"
 fi
-

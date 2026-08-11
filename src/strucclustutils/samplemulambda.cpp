@@ -11,6 +11,7 @@
 #include "StructureUtil.h"
 
 #include <random>
+#include <memory>
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
@@ -678,11 +679,31 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
         t3DiDbr = new IndexReader(StructureUtil::getIndexWithSuffix(par.db2, "_ss"), par.threads, IndexReader::SEQUENCES, touch ? IndexReader::PRELOAD_INDEX : 0);
     }
 
+    const bool query3Di12St = StructureUtil::is3Di12StDb(qdbr.sequenceReader->getDbtype());
+    const bool target3Di12St = StructureUtil::is3Di12StDb(t3DiDbr->sequenceReader->getDbtype());
 
     DBWriter dbw(par.db3.c_str(), par.db3Index.c_str(), static_cast<unsigned int>(par.threads), par.compressed,  Parameters::DBTYPE_ALIGNMENT_RES);
     dbw.open();
 
     SubstitutionMatrix subMat3Di(par.scoringMatrixFile.values.aminoacid().c_str(), 2.1, par.scoreBias);
+    std::string mat12st;
+    if (query3Di12St || target3Di12St) {
+        for (size_t i = 0; i < par.substitutionMatrices.size(); i++) {
+            if (par.substitutionMatrices[i].name == "12st.out") {
+                std::string matrixData((const char *)par.substitutionMatrices[i].subMatData,
+                                       par.substitutionMatrices[i].subMatDataLen);
+                std::string matrixName = par.substitutionMatrices[i].name;
+                char * serializedMatrix = BaseMatrix::serialize(matrixName, matrixData);
+                mat12st.assign(serializedMatrix);
+                free(serializedMatrix);
+                break;
+            }
+        }
+        if (mat12st.empty()) {
+            Debug(Debug::ERROR) << "Cannot find 12st substitution matrix\n";
+            EXIT(EXIT_FAILURE);
+        }
+    }
     std::string blosum;
     for (size_t i = 0; i < par.substitutionMatrices.size(); i++) {
         if (par.substitutionMatrices[i].name == "blosum62.out") {
@@ -695,6 +716,10 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
         }
     }
     SubstitutionMatrix subMatAA(blosum.c_str(), 1.4, par.scoreBias);
+    SubstitutionMatrix *subMat12St = NULL;
+    if (query3Di12St || target3Di12St) {
+        subMat12St = new SubstitutionMatrix(mat12st.c_str(), par.submat12stScale, par.scoreBias);
+    }
 
     //temporary output file
     Debug::Progress progress(tAADbr->sequenceReader->getSize());
@@ -713,13 +738,30 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
             tinySubMatAA[i * subMatAA.alphabetSize + j] = subMatAA.subMatrix[i][j];
         }
     }
+    // Score the 12-state channel exactly as the search path does, so the sampled
+    // mu/lambda match the scoring used at query time (3Di + AA + 12st).
+    const bool use12StScoring = par.ss12st && query3Di12St && target3Di12St;
+    int8_t * tinySubMat12St = NULL;
+    if (use12StScoring) {
+        // SSW uses subMat3Di.alphabetSize as stride for all matrices including 12st
+        int stride = subMat3Di.alphabetSize;
+        tinySubMat12St = (int8_t*) mem_align(ALIGN_INT, stride * stride * sizeof(int8_t));
+        memset(tinySubMat12St, 0, stride * stride * sizeof(int8_t));
+        for (int i = 0; i < subMat12St->alphabetSize; i++) {
+            for (int j = 0; j < subMat12St->alphabetSize; j++) {
+                tinySubMat12St[i * stride + j] = subMat12St->subMatrix[i][j];
+            }
+        }
+    }
 #pragma omp parallel
     {
         unsigned int thread_idx = 0;
 #ifdef OPENMP
         thread_idx = static_cast<unsigned int>(omp_get_thread_num());
 #endif
-        EvalueNeuralNet evaluer(tAADbr->sequenceReader->getAminoAcidDBSize(), &subMat3Di);
+        EvalueNeuralNet evaluer(tAADbr->sequenceReader->getAminoAcidDBSize(),
+                                tAADbr->sequenceReader->getSize(),
+                                &subMat3Di);
         std::vector<Matcher::result_t> alignmentResult;
         StructureSmithWaterman structureSmithWaterman(par.maxSeqLen, subMat3Di.alphabetSize, par.compBiasCorrection, par.compBiasCorrectionScale, NULL, NULL);
         StructureSmithWaterman reverseStructureSmithWaterman(par.maxSeqLen, subMat3Di.alphabetSize, par.compBiasCorrection, par.compBiasCorrectionScale, NULL, NULL);
@@ -728,6 +770,24 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
         Sequence qSeq3Di(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) &subMat3Di, 0, false, par.compBiasCorrection);
         Sequence tSeqAA(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) &subMatAA, 0, false, par.compBiasCorrection);
         Sequence tSeq3Di(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) &subMat3Di, 0, false, par.compBiasCorrection);
+        std::unique_ptr<Sequence> qSeq12St;
+        std::unique_ptr<Sequence> tSeq12St;
+        if (use12StScoring) {
+            qSeq12St.reset(new Sequence(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) subMat12St, 0, false, par.compBiasCorrection));
+            tSeq12St.reset(new Sequence(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) subMat12St, 0, false, par.compBiasCorrection));
+        }
+        std::vector<char> qSeq3Di21Buf;
+        std::vector<char> qSeq12StBuf;
+        std::vector<char> tSeq3Di21Buf;
+        std::vector<char> tSeq12StBuf;
+        if (query3Di12St) {
+            qSeq3Di21Buf.reserve(par.maxSeqLen);
+            qSeq12StBuf.reserve(par.maxSeqLen);
+        }
+        if (target3Di12St) {
+            tSeq3Di21Buf.reserve(par.maxSeqLen);
+            tSeq12StBuf.reserve(par.maxSeqLen);
+        }
         std::string backtrace;
         std::string resultBuffer;
         // write output file
@@ -740,12 +800,33 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
             unsigned int querySeqLen = qdbr.sequenceReader->getSeqLen(id);
             char *querySeqAA = qdbrAA.sequenceReader->getData(id, thread_idx);
             char *querySeq3Di = qdbr.sequenceReader->getData(id, thread_idx);
-            qSeq3Di.mapSequence(id, queryKey, querySeq3Di, querySeqLen);
+            const char *querySeq3Di21 = querySeq3Di;
+            const char *querySeq12St = NULL;
+            if (query3Di12St) {
+                StructureUtil::split3Di12St(querySeq3Di, querySeqLen, qSeq3Di21Buf, qSeq12StBuf, subMat3Di, *subMat12St);
+                querySeq3Di21 = qSeq3Di21Buf.data();
+                querySeq12St = qSeq12StBuf.data();
+            }
+            qSeq3Di.mapSequence(id, queryKey, querySeq3Di21, querySeqLen);
             qSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
-            structureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA);
-            qSeq3Di.reverse();
-            qSeqAA.reverse();
-            reverseStructureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA);
+            if (use12StScoring) {
+                qSeq12St->mapSequence(id, queryKey, qSeq12StBuf.data(), querySeqLen);
+            }
+            structureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
+                                            use12StScoring ? qSeq12St.get() : NULL,
+                                            use12StScoring ? tinySubMat12St : NULL,
+                                            use12StScoring ? static_cast<const BaseMatrix *>(subMat12St) : NULL);
+            if (par.useReverseScore) {
+                qSeq3Di.reverse();
+                qSeqAA.reverse();
+                if (use12StScoring) {
+                    qSeq12St->reverse();
+                }
+                reverseStructureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
+                                            use12StScoring ? qSeq12St.get() : NULL,
+                                            use12StScoring ? tinySubMat12St : NULL,
+                                            use12StScoring ? static_cast<const BaseMatrix *>(subMat12St) : NULL);
+            }
             for (int sample = 0; sample < par.nsample; sample++) {
                 // pick random number between 0 and size of database
                 size_t sampleIdx = static_cast<size_t>(t3DiDbr->sequenceReader->getSize() * drand48());
@@ -755,8 +836,16 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
                 char * targetSeq3Di = t3DiDbr->sequenceReader->getData(targetId, thread_idx);
                 char * targetSeqAA = tAADbr->sequenceReader->getData(targetId, thread_idx);
                 const int targetLen = static_cast<int>(t3DiDbr->sequenceReader->getSeqLen(targetId));
-                tSeq3Di.mapSequence(targetId, dbKey, targetSeq3Di, targetLen);
+                const char *targetSeq3Di21 = targetSeq3Di;
+                if (target3Di12St) {
+                    StructureUtil::split3Di12St(targetSeq3Di, targetLen, tSeq3Di21Buf, tSeq12StBuf, subMat3Di, *subMat12St);
+                    targetSeq3Di21 = tSeq3Di21Buf.data();
+                }
+                tSeq3Di.mapSequence(targetId, dbKey, targetSeq3Di21, targetLen);
                 tSeqAA.mapSequence(targetId, dbKey, targetSeqAA, targetLen);
+                if (use12StScoring) {
+                    tSeq12St->mapSequence(targetId, dbKey, tSeq12StBuf.data(), targetLen);
+                }
                 // shuffle a vector of integers
                 std::vector<int> indices(targetLen);
                 for (int i = 0; i < targetLen; i++) {
@@ -766,13 +855,23 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
                 for (int i = 0; i < targetLen; i++) {
                     std::swap(tSeq3Di.numSequence[i], tSeq3Di.numSequence[indices[i]]);
                     std::swap(tSeqAA.numSequence[i], tSeqAA.numSequence[indices[i]]);
+                    // apply the identical permutation to the 12st channel so all three
+                    // channels stay aligned per residue in the shuffled null target
+                    if (use12StScoring) {
+                        std::swap(tSeq12St->numSequence[i], tSeq12St->numSequence[indices[i]]);
+                    }
                 }
 
                 StructureSmithWaterman::s_align align = structureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence, targetLen, par.gapOpen.values.aminoacid(),
-                                                                                                par.gapExtend.values.aminoacid(), querySeqLen / 2);
-                StructureSmithWaterman::s_align revAlign = reverseStructureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence, targetLen, par.gapOpen.values.aminoacid(),
-                                                                                                          par.gapExtend.values.aminoacid(), querySeqLen / 2);
-                int32_t score = static_cast<int32_t>(align.score1) - static_cast<int32_t>(revAlign.score1);
+                                                                                                par.gapExtend.values.aminoacid(), querySeqLen / 2,
+                                                                                                use12StScoring ? tSeq12St->numSequence : NULL);
+                int32_t score = static_cast<int32_t>(align.score1);
+                if (par.useReverseScore) {
+                    StructureSmithWaterman::s_align revAlign = reverseStructureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence, targetLen, par.gapOpen.values.aminoacid(),
+                                                                                                              par.gapExtend.values.aminoacid(), querySeqLen / 2,
+                                                                                                              use12StScoring ? tSeq12St->numSequence : NULL);
+                    score -= static_cast<int32_t>(revAlign.score1);
+                }
                 align.evalue = 0.0;
                 //align.evalue = evaluer.computeEvalue(score, muLambda.first, muLambda.second);
 
@@ -794,12 +893,16 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
                 scores[i] = alignmentResult[i].score;
             }
             float mu = 0.0;
-	    float lambda = 0.0;
+            float lambda = 0.0;
             EVDMaxLikelyFit(scores, NULL, alignmentResult.size(), &mu, &lambda);
             delete [] scores;
             resultBuffer.append(querySeqAA, querySeqLen);
-	        resultBuffer.push_back('\t');
-            resultBuffer.append(querySeq3Di, querySeqLen);
+            resultBuffer.push_back('\t');
+            resultBuffer.append(querySeq3Di21, querySeqLen);
+            if (querySeq12St != NULL) {
+                resultBuffer.push_back('\t');
+                resultBuffer.append(querySeq12St, querySeqLen);
+            }
             resultBuffer.push_back('\t');
             resultBuffer.append(SSTR(mu));
             resultBuffer.push_back('\t');
@@ -813,6 +916,10 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
 
     free(tinySubMatAA);
     free(tinySubMat3Di);
+    if (tinySubMat12St != NULL) {
+        free(tinySubMat12St);
+    }
+    delete subMat12St;
     dbw.close();
     if (sameDB == false) {
         delete t3DiDbr;
@@ -820,4 +927,3 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
     }
     return EXIT_SUCCESS;
 }
-

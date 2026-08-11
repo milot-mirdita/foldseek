@@ -55,7 +55,7 @@ static DistanceCalculator::LocalAlignment ungappedAlignment(const T *seq3Di1,
 Matcher::result_t ungappedAlignStructure(Sequence & qSeqAA, Sequence & qSeq3Di, Sequence & qRevSeqAA, Sequence & qRevSeq3Di,
                                          Sequence & tSeqAA, Sequence & tSeq3Di, int diagonal, SubstitutionMatrix & subAAMat,
                                          SubstitutionMatrix & sub3DiMat, EvalueNeuralNet & evaluer,
-                                         std::pair<double, double> muLambda, std::string & backtrace, Parameters & par) {
+                                         std::pair<double, double> queryMuLambda, std::string & backtrace, Parameters & par) {
     DistanceCalculator::LocalAlignment res;
     float seqId = 0.0;
     int32_t score = 0;
@@ -106,8 +106,6 @@ Matcher::result_t ungappedAlignStructure(Sequence & qSeqAA, Sequence & qSeq3Di, 
 
     }
 
-    double evalue = evaluer.computeEvalueCorr(score, muLambda.first, muLambda.second);
-
     unsigned int distanceToDiagonal = res.distToDiagonal;
     int diagonalLen = res.diagonalLen;
     float targetCov = static_cast<float>(diagonalLen) / static_cast<float>(tSeqAA.L);
@@ -127,6 +125,13 @@ Matcher::result_t ungappedAlignStructure(Sequence & qSeqAA, Sequence & qSeq3Di, 
         dbStartPos = res.startPos + distanceToDiagonal;
         dbEndPos = res.endPos + distanceToDiagonal;
     }
+    std::pair<double, double> muLambda = queryMuLambda;
+    if (evaluer.usesWindowedModel()) {
+        muLambda = evaluer.predictMuLambda(qSeq3Di, qEndPos + 1,
+                                           tSeq3Di, dbEndPos + 1,
+                                           score);
+    }
+    double evalue = evaluer.computeEvalueCorr(score, muLambda.first, muLambda.second);
     unsigned int alnLength = Matcher::computeAlnLength(qStartPos, qEndPos, dbStartPos, dbEndPos);
     if (par.addBacktrace) {
         backtrace.append(alnLength, 'M');
@@ -165,6 +170,7 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
     const bool touch = (par.preloadMode != Parameters::PRELOAD_MODE_MMAP);
     IndexReader qdbrAA(par.db1, par.threads, IndexReader::SEQUENCES, touch ? IndexReader::PRELOAD_INDEX : 0);
     IndexReader qdbr3Di(StructureUtil::getIndexWithSuffix(par.db1, "_ss"), par.threads, IndexReader::SEQUENCES, touch ? IndexReader::PRELOAD_INDEX : 0);
+    IndexReader *q12StDbr = NULL;
 
     IndexReader *t3DiDbr = NULL;
     IndexReader *tAADbr = NULL;
@@ -180,7 +186,17 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
 
     bool target3Di12St = StructureUtil::is3Di12StDb(t3DiDbr->sequenceReader->getDbtype());
     bool query3Di12St  = StructureUtil::is3Di12StDb(qdbr3Di.sequenceReader->getDbtype());
-    bool use12StScoring = par.ss12st && query3Di12St && target3Di12St;
+    if (!query3Di12St && FileUtil::fileExists((par.db1 + "_ss12.dbtype").c_str())) {
+        q12StDbr = new IndexReader(StructureUtil::getIndexWithSuffix(par.db1, "_ss12"), par.threads,
+                                   IndexReader::SEQUENCES, touch ? IndexReader::PRELOAD_INDEX : 0);
+    }
+    bool queryHas12St = query3Di12St || (q12StDbr != NULL);
+    bool use12StScoring = par.ss12st && queryHas12St && target3Di12St;
+    bool use12StEvalue = par.evalueNNMode == LocalParameters::EVALUE_NN_MODE_LEGACY_12ST;
+    if (use12StEvalue && !queryHas12St) {
+        Debug(Debug::ERROR) << "--evalue-nn-mode 2 requires a query 12-state alphabet in the packed _ss DB or a _ss12 DB\n";
+        EXIT(EXIT_FAILURE);
+    }
 
     bool needTMaligner = (par.tmScoreThr > 0);
     bool needLDDT = (par.lddtThr > 0);
@@ -230,7 +246,7 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
         }
     }
     std::string mat12st;
-    if (query3Di12St || target3Di12St) {
+    if (queryHas12St || target3Di12St) {
         for (size_t i = 0; i < par.substitutionMatrices.size(); i++) {
             if (par.substitutionMatrices[i].name == "12st.out") {
                 std::string matrixData((const char *)par.substitutionMatrices[i].subMatData,
@@ -250,7 +266,7 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
     float aaFactor = (par.alignmentType == LocalParameters::ALIGNMENT_TYPE_3DI_AA) ? 1.4 : 0.0;
     SubstitutionMatrix subMatAA(blosum.c_str(), aaFactor, par.scoreBias);
     SubstitutionMatrix *subMat12St = NULL;
-    if (query3Di12St || target3Di12St) {
+    if (queryHas12St || target3Di12St) {
         subMat12St = new SubstitutionMatrix(mat12st.c_str(), par.submat12stScale, par.scoreBias);
     }
     //temporary output file
@@ -289,7 +305,12 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
 #ifdef OPENMP
         thread_idx = static_cast<unsigned int>(omp_get_thread_num());
 #endif
-        EvalueNeuralNet evaluer(tAADbr->sequenceReader->getAminoAcidDBSize(), &subMat3Di);
+        EvalueNeuralNet evaluer(tAADbr->sequenceReader->getAminoAcidDBSize(),
+                                tAADbr->sequenceReader->getSize(),
+                                &subMat3Di,
+                                par.evalueNNMode,
+                                use12StScoring,
+                                par.evalue12StProfileComp != 0);
         std::vector<Matcher::result_t> alignmentResult;
         StructureSmithWaterman structureSmithWaterman(par.maxSeqLen, subMat3Di.alphabetSize, par.compBiasCorrection, par.compBiasCorrectionScale, NULL, NULL);
         StructureSmithWaterman reverseStructureSmithWaterman(par.maxSeqLen, subMat3Di.alphabetSize, par.compBiasCorrection, par.compBiasCorrectionScale, NULL, NULL);
@@ -306,11 +327,15 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
         std::vector<char> qSeq12StBuf;
         std::vector<char> tSeq3Di21Buf;
         std::vector<char> tSeq12StBuf;
-        if (query3Di12St) {
+        if (queryHas12St) {
             qSeq3Di21Buf.reserve(par.maxSeqLen);
             qSeq12StBuf.reserve(par.maxSeqLen);
-            if (use12StScoring) {
-                qSeq12St.reset(new Sequence(par.maxSeqLen, Parameters::DBTYPE_AMINO_ACIDS, (const BaseMatrix *) subMat12St, 0, false, par.compBiasCorrection));
+            if (use12StScoring || use12StEvalue) {
+                int q12StDbtype = query3Di12St ? Parameters::DBTYPE_AMINO_ACIDS : q12StDbr->getDbtype();
+                const BaseMatrix *q12StMat = (q12StDbtype == Parameters::DBTYPE_HMM_PROFILE)
+                    ? static_cast<const BaseMatrix *>(&subMatAA)
+                    : static_cast<const BaseMatrix *>(subMat12St);
+                qSeq12St.reset(new Sequence(par.maxSeqLen, q12StDbtype, q12StMat, 0, false, par.compBiasCorrection));
             }
         }
         if (target3Di12St) {
@@ -355,9 +380,13 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
                 if (query3Di12St) {
                     StructureUtil::split3Di12St(querySeq3Di, querySeqLen, qSeq3Di21Buf, qSeq12StBuf, subMat3Di, *subMat12St, true);
                     querySeq3Di21 = qSeq3Di21Buf.data();
-                    if (use12StScoring) {
+                    if (use12StScoring || use12StEvalue) {
                         qSeq12St->mapSequence(id, queryKey, qSeq12StBuf.data(), querySeqLen);
                     }
+                } else if (use12StScoring || use12StEvalue) {
+                    unsigned int query12StId = q12StDbr->sequenceReader->getId(queryKey);
+                    char *querySeq12St = q12StDbr->sequenceReader->getData(query12StId, thread_idx);
+                    qSeq12St->mapSequence(id, queryKey, querySeq12St, querySeqLen);
                 }
                 qSeq3Di.mapSequence(id, queryKey, querySeq3Di21, querySeqLen);
                 qSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
@@ -375,16 +404,23 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
                 }
                 qRevSeq3Di.mapSequence(id, queryKey, querySeq3Di21, querySeqLen);
                 qRevSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
-                std::pair<double, double> muLambda = evaluer.predictMuLambda(qSeq3Di.numSequence, qSeq3Di.L);
+                std::pair<double, double> muLambda = std::make_pair(0.0, 0.0);
+                if (!evaluer.usesWindowedModel()) {
+                    muLambda = evaluer.usesLegacy12StModel()
+                        ? evaluer.predictMuLambda(qSeq3Di, *qSeq12St)
+                        : evaluer.predictMuLambda(qSeq3Di);
+                }
                 structureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
-                                               use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL);
+                                               use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL,
+                                               use12StScoring ? static_cast<const BaseMatrix *>(subMat12St) : NULL);
                 qRevSeq3Di.reverse();
                 qRevSeqAA.reverse();
                 if (use12StScoring) {
                     qSeq12St->reverse();
                 }
                 reverseStructureSmithWaterman.ssw_init(&qSeqAA, &qSeq3Di, tinySubMatAA, tinySubMat3Di, &subMatAA,
-                                                       use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL);
+                                                       use12StScoring ? qSeq12St.get() : NULL, use12StScoring ? tinySubMat12St : NULL,
+                                                       use12StScoring ? static_cast<const BaseMatrix *>(subMat12St) : NULL);
                 int passedNum = 0;
                 int rejected = 0;
                 while (*data != '\0' && passedNum < par.maxAccept && rejected < par.maxRejected) {
@@ -484,6 +520,9 @@ int structureungappedalign(int argc, const char **argv, const Command& command) 
     if (sameDB == false) {
         delete t3DiDbr;
         delete tAADbr;
+    }
+    if (q12StDbr) {
+        delete q12StDbr;
     }
     delete subMat12St;
     return EXIT_SUCCESS;

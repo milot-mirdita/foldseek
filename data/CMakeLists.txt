@@ -14,6 +14,8 @@ set(COMPILED_RESOURCES
         mat12st.out
         encoder_weights_3di.kerasify
         evalue_nn.kerasify
+        evalue_12st_nn.kerasify
+        windowed_evalue_nn.kerasify
         main.js
         vendor.js.zst
         makepaddeddb.sh
