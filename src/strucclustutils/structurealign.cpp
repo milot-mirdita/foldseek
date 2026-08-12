@@ -102,7 +102,12 @@ int alignStructure(StructureSmithWaterman & structureSmithWaterman,
 
     const int32_t rawSmithWatermanScore = static_cast<int32_t>(align.score1);
     int32_t score;
-    const bool useReverseScoreForThisQuery = useReverseScore && !structureSmithWaterman.isProfileSearch();
+    // Profile queries used to skip the reverse-score null correction. Sequence::reverse()
+    // handles DBTYPE_HMM_PROFILE (profile_score, profile_index, profile_for_alignment,
+    // numSequence) and ssw_init() memcpy's the alignment profiles, so the forward object
+    // is unaffected by reversing the query afterwards. Without the correction a profile
+    // query's null distribution is ~4x hotter than a sequence query's.
+    const bool useReverseScoreForThisQuery = useReverseScore;
     if (useReverseScoreForThisQuery) {
         StructureSmithWaterman::s_align revAlign;
         revAlign = reverseStructureSmithWaterman.alignScoreEndPos<StructureSmithWaterman::PROFILE>(tSeqAA.numSequence, tSeq3Di.numSequence,
@@ -533,7 +538,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
                                     qSeq3Di.L,
                                     qSeq12St ? qSeq12St->L : -1);
                 }
-                const bool useReverseScoreForThisQuery = par.useReverseScore && !structureSmithWaterman.isProfileSearch();
+                const bool useReverseScoreForThisQuery = par.useReverseScore;
                 if (useReverseScoreForThisQuery) {
                     qSeq3Di.reverse();
                     qSeqAA.reverse();
