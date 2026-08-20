@@ -436,7 +436,7 @@ LocalParameters::LocalParameters() :
     submat12stScale = 2.1;
 
     // include 12-state alphabet in _ss database and use for scoring
-    useAuxScoring = true;
+    useAuxScoring = false;
 
     // subtract reverse alignment score from forward score
     useReverseScore = 1;
