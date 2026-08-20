@@ -6,7 +6,6 @@
 
 const int LocalParameters::DBTYPE_CA_ALPHA = 101;
 const int LocalParameters::DBTYPE_TMSCORE = 102;
-const unsigned int LocalParameters::DBTYPE_EXTENDED_3DI_12ST = 32;
 
 LocalParameters::LocalParameters() :
         Parameters(),

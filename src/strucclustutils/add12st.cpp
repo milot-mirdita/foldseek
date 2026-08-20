@@ -30,7 +30,7 @@ int add12st(int argc, const char **argv, const Command &command) {
                                     DBReader<unsigned int>::USE_INDEX | DBReader<unsigned int>::USE_DATA);
     ssReader.open(DBReader<unsigned int>::NOSORT);
 
-    if ((DBReader<unsigned int>::getExtendedDbtype(ssReader.getDbtype()) & LocalParameters::DBTYPE_EXTENDED_3DI_12ST) != 0) {
+    if ((DBReader<unsigned int>::getExtendedDbtype(ssReader.getDbtype()) & Parameters::DBTYPE_EXTENDED_AUX_SEQ) != 0) {
         Debug(Debug::INFO) << "Database already contains 12-state alphabet. Nothing to do.\n";
         ssReader.close();
         return EXIT_SUCCESS;
@@ -47,6 +47,9 @@ int add12st(int argc, const char **argv, const Command &command) {
     caReader.open(DBReader<unsigned int>::NOSORT);
 
     // Move old _ss to _ss_old
+    // TODO: this only handles a single data file. A split database keeps its data in
+    // db_ss.0, db_ss.1, ... and the moves below will not find them, so add12st has to
+    // iterate over ssReader.getDataFileCnt() instead of assuming one file.
     std::string dbSsOld = dbBase + "_ss_old";
     std::string dbSsOldIndex = dbBase + "_ss_old.index";
     std::string dbSsOldDbtype = dbBase + "_ss_old.dbtype";
@@ -61,7 +64,7 @@ int add12st(int argc, const char **argv, const Command &command) {
     ssOldReader.open(DBReader<unsigned int>::NOSORT);
 
     int ssDbtype = DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS,
-                                                             LocalParameters::DBTYPE_EXTENDED_3DI_12ST);
+                                                             Parameters::DBTYPE_EXTENDED_AUX_SEQ);
     DBWriter ssWriter(dbSs.c_str(), dbSsIndex.c_str(), par.threads, par.compressed, ssDbtype);
     ssWriter.open();
 

@@ -7,7 +7,7 @@ OUT="$4"
 INPUT_SS_DB="${INPUT_SS_DB:-${INPUT}_ss}"
 TARGET_SS_DB="${TARGET_SS_DB:-${TARGET}_ss${INDEXEXT}}"
 
-die() {
+fail() {
     echo "$1" >&2
     exit 1
 }
@@ -15,13 +15,13 @@ die() {
 if [ -e "${INPUT}.dbtype" ]; then
     # shellcheck disable=SC2086
     $RUNNER "$MMSEQS" base:result2profile "${INPUT}" "${TARGET}${INDEXEXT}" "${RESULT}" "${OUT}" ${PROFILE_PAR} \
-        || die "result2profile for AA died"
+        || fail "result2profile for AA died"
 fi
 
 if [ -e "${INPUT_SS_DB}.dbtype" ]; then
     # shellcheck disable=SC2086
     $RUNNER "$MMSEQS" base:result2profile "${INPUT_SS_DB}" "${TARGET_SS_DB}" "${RESULT}" "${OUT}_ss" ${PROFILE_SS_PAR} \
-        || die "result2profile for 3Di died"
+        || fail "result2profile for 3Di died"
 fi
 
 if [ -n "${CREATE_SS12_PROFILE}" ]; then
@@ -33,7 +33,7 @@ if [ -n "${CREATE_SS12_PROFILE}" ]; then
 
     # shellcheck disable=SC2086
     $RUNNER "$MMSEQS" base:result2profile "${INPUT_SS12_DB}" "${TARGET_SS12_DB}" "${RESULT}" "${SS12_RAW_OUT}" ${PROFILE_SS12_PAR} \
-        || die "result2profile for 12-state died"
+        || fail "result2profile for 12-state died"
 
     if [ -n "${PROFILE_SS12_OUTPUT_COLUMNS}" ]; then
         awk -v keep="${PROFILE_SS12_OUTPUT_COLUMNS}" \
@@ -70,7 +70,7 @@ if [ -n "${CREATE_SS12_PROFILE}" ]; then
                     printf "%.4f%s", value, (i == keep || i == NF) ? "\n" : " "
                 }
             }
-        ' "${SS12_RAW_OUT}" > "${SS12_OUT}" || die "12-state profile formatting died"
+        ' "${SS12_RAW_OUT}" > "${SS12_OUT}" || fail "12-state profile formatting died"
         rm -f -- "${SS12_RAW_OUT}"
     fi
 fi
@@ -78,13 +78,13 @@ fi
 if [ -e "${INPUT}_ca.dbtype" ]; then
     # shellcheck disable=SC2086
     "$MMSEQS" lndb "${INPUT}_ca" "${OUT}_ca" ${VERBOSITY} \
-        || die "Create lndb died"
+        || fail "Create lndb died"
 fi
 
 if [ -e "${INPUT}_h.dbtype" ]; then
     # shellcheck disable=SC2086
     "$MMSEQS" lndb "${INPUT}_h" "${OUT}_h" ${VERBOSITY} \
-        || die "Create lndb died"
+        || fail "Create lndb died"
 fi
 
 if [ -e "${INPUT}.sh" ]; then

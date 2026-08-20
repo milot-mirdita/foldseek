@@ -32,7 +32,7 @@ void updateValdiation() {
             break;
         }
     }
-    Sequence::registerAuxSplit(LocalParameters::DBTYPE_EXTENDED_3DI_12ST,
+    Sequence::registerAuxSplit(Parameters::DBTYPE_EXTENDED_AUX_SEQ,
                                remap3Di, remapAux, auxMatData, auxMatDataLen,
                                Alphabet12St::STATE_CNT);
 }

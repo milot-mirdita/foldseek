@@ -995,7 +995,7 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
     SORT_PARALLEL(par.filenames.begin(), par.filenames.end());
 
     int ssDbtype = par.ss12st
-        ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, LocalParameters::DBTYPE_EXTENDED_3DI_12ST)
+        ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, Parameters::DBTYPE_EXTENDED_AUX_SEQ)
         : Parameters::DBTYPE_AMINO_ACIDS;
     DBWriter torsiondbw((outputName+"_ss").c_str(), (outputName+"_ss.index").c_str(), static_cast<unsigned int>(par.threads), par.compressed, ssDbtype);
     torsiondbw.open();
@@ -1470,7 +1470,7 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
         torsiondbr_reorder.open(DBReader<unsigned int>::NOSORT);
         torsiondbr_reorder.readMmapedDataInMemory();
         int ssDbtype_reorder = par.ss12st
-            ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, LocalParameters::DBTYPE_EXTENDED_3DI_12ST)
+            ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, Parameters::DBTYPE_EXTENDED_AUX_SEQ)
             : Parameters::DBTYPE_AMINO_ACIDS;
         DBWriter torsiondbw_reorder((outputName+"_ss").c_str(), (outputName+"_ss.index").c_str(), static_cast<unsigned int>(par.threads), par.compressed, ssDbtype_reorder);
         torsiondbw_reorder.open();

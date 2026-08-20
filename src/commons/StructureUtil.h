@@ -13,7 +13,7 @@ class StructureUtil {
 public:
     static bool is3Di12StDb(int dbtype) {
         return (DBReader<unsigned int>::getExtendedDbtype(dbtype)
-                & LocalParameters::DBTYPE_EXTENDED_3DI_12ST) != 0;
+                & Parameters::DBTYPE_EXTENDED_AUX_SEQ) != 0;
     }
 
     // Mask redundant 12st positions for query sequences only.
