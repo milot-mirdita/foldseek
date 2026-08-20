@@ -336,7 +336,7 @@ void compute3DiInterfaces(GemmiWrapper &readStructure, PulchraWrapper &pulchra, 
         if (readStructure.chainNames[ch1] == "SKIP") {
             interfaceCa.push_back(Vec3(0,0,0));
             interfaceAmi.push_back('X');
-            if (par.ss12st) {
+            if (par.useAuxScoring) {
                 interfaceSeq3di.push_back(static_cast<char>(Alphabet3Di::INVALID_STATE * Alphabet12St::STATE_CNT + Alphabet12St::INVALID_STATE));
             } else {
                 interfaceSeq3di.push_back(mat3Di.num2aa[Alphabet3Di::INVALID_STATE]);
@@ -382,7 +382,7 @@ void compute3DiInterfaces(GemmiWrapper &readStructure, PulchraWrapper &pulchra, 
                                                                 cb.data(),
                                                                 resIdx1.size() + resIdx2.size());
                     for (size_t i = 0; i < resIdx1.size(); i++) {
-                        if (par.ss12st) {
+                        if (par.useAuxScoring) {
                             interfaceSeq3di.push_back(static_cast<char>(states[i] * Alphabet12St::STATE_CNT + states12st[i]));
                         } else {
                             interfaceSeq3di.push_back(mat3Di.num2aa[static_cast<unsigned char>(states[i])]);
@@ -391,7 +391,7 @@ void compute3DiInterfaces(GemmiWrapper &readStructure, PulchraWrapper &pulchra, 
                         interfaceCa.push_back(readStructure.ca[resIdx1[i]]);
                     }
                     for (size_t i = 0; i < resIdx2.size(); i++) {
-                        if (par.ss12st) {
+                        if (par.useAuxScoring) {
                             interfaceSeq3di.push_back(static_cast<char>(states[resIdx1.size()+i] * Alphabet12St::STATE_CNT + states12st[resIdx1.size()+i]));
                         } else {
                             interfaceSeq3di.push_back(mat3Di.num2aa[static_cast<unsigned char>(states[resIdx1.size()+i])]);
@@ -442,7 +442,7 @@ void compute3DiInterfaces(GemmiWrapper &readStructure, PulchraWrapper &pulchra, 
                 else {
                     interfaceCa.push_back(Vec3(0,0,0));
                     interfaceAmi.push_back('X');
-                    if (par.ss12st) {
+                    if (par.useAuxScoring) {
                         interfaceSeq3di.push_back(static_cast<char>(Alphabet3Di::INVALID_STATE * Alphabet12St::STATE_CNT + Alphabet12St::INVALID_STATE));
                     } else {
                         interfaceSeq3di.push_back(mat3Di.num2aa[Alphabet3Di::INVALID_STATE]);
@@ -551,7 +551,7 @@ writeStructureEntry(SubstitutionMatrix & mat, GemmiWrapper & readStructure, Stru
                                                             &readStructure.cb[chainStart],
                                                             chainLen);
             for (size_t pos = 0; pos < chainLen; pos++) {
-                if (par.ss12st) {
+                if (par.useAuxScoring) {
                     alphabet3di.push_back(static_cast<char>(states[pos] * Alphabet12St::STATE_CNT + states12st[pos]));
                 } else {
                     alphabet3di.push_back(mat.num2aa[static_cast<unsigned char>(states[pos])]);
@@ -994,7 +994,7 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
     Debug(Debug::INFO) << "Output file: " << outputName << "\n";
     SORT_PARALLEL(par.filenames.begin(), par.filenames.end());
 
-    int ssDbtype = par.ss12st
+    int ssDbtype = par.useAuxScoring
         ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, Parameters::DBTYPE_EXTENDED_AUX_SEQ)
         : Parameters::DBTYPE_AMINO_ACIDS;
     DBWriter torsiondbw((outputName+"_ss").c_str(), (outputName+"_ss.index").c_str(), static_cast<unsigned int>(par.threads), par.compressed, ssDbtype);
@@ -1469,7 +1469,7 @@ int structcreatedb(int argc, const char **argv, const Command& command) {
         DBReader<unsigned int> torsiondbr_reorder((outputName+"_ss").c_str(), (outputName+"_ss.index").c_str(), par.threads, DBReader<unsigned int>::USE_INDEX|DBReader<unsigned int>::USE_DATA);
         torsiondbr_reorder.open(DBReader<unsigned int>::NOSORT);
         torsiondbr_reorder.readMmapedDataInMemory();
-        int ssDbtype_reorder = par.ss12st
+        int ssDbtype_reorder = par.useAuxScoring
             ? DBReader<unsigned int>::setExtendedDbtype(Parameters::DBTYPE_AMINO_ACIDS, Parameters::DBTYPE_EXTENDED_AUX_SEQ)
             : Parameters::DBTYPE_AMINO_ACIDS;
         DBWriter torsiondbw_reorder((outputName+"_ss").c_str(), (outputName+"_ss.index").c_str(), static_cast<unsigned int>(par.threads), par.compressed, ssDbtype_reorder);

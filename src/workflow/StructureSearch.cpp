@@ -100,7 +100,6 @@ int structuresearch(int argc, const char **argv, const Command &command) {
     const bool isIndex = PrefilteringIndexReader::searchForIndex(target).empty() == false;
     cmd.addVariable("INDEXEXT", isIndex ? ".idx" : NULL);
     par.compBiasCorrectionScale = 0.15;
-    par.useAuxScoring = par.ss12st;
     cmd.addVariable("PREFILTER_PAR", par.createParameterString(par.prefilter).c_str());
     double prevEvalueThr = par.evalThr;
     par.evalThr = std::numeric_limits<double>::max();
@@ -145,7 +144,7 @@ int structuresearch(int argc, const char **argv, const Command &command) {
         cmd.addVariable("ALIGNMENT_PAR", par.createParameterString(par.lolalign).c_str());
         par.alignmentMode = Parameters::ALIGNMENT_MODE_SCORE_ONLY;
         par.sortByStructureBits = 0;
-        par.ss12st = 0;
+        par.useAuxScoring = 0;
         //par.evalThr = 10; we want users to adjust this one. Our default is 10 anyhow.
         cmd.addVariable("STRUCTUREALIGN_PAR", par.createParameterString(par.structurealign).c_str());
     }else if(par.alignmentType == LocalParameters::ALIGNMENT_TYPE_3DI_AA || par.alignmentType == LocalParameters::ALIGNMENT_TYPE_3DI){
@@ -196,16 +195,16 @@ int structuresearch(int argc, const char **argv, const Command &command) {
                 cmd.addVariable(std::string("ALIGNMENT_PAR_" + SSTR(i)).c_str(), par.createParameterString(par.tmalign).c_str());
             }else if(par.alignmentType == LocalParameters::ALIGNMENT_TYPE_3DI_AA){
                 const bool disable12StForThisIteration = ss12FirstOnly && i >= 1;
-                const int savedSs12St = par.ss12st;
+                const bool savedSs12St = par.useAuxScoring;
                 const int savedEvalueNNMode = par.evalueNNMode;
                 const bool savedUseReverseScore = par.useReverseScore;
                 if (disable12StForThisIteration) {
-                    par.ss12st = 0;
+                    par.useAuxScoring = 0;
                     par.evalueNNMode = LocalParameters::EVALUE_NN_MODE_LEGACY;
                     par.useReverseScore = true;
                 }
                 cmd.addVariable(std::string("ALIGNMENT_PAR_" + SSTR(i)).c_str(), par.createParameterString(par.structurealign).c_str());
-                par.ss12st = savedSs12St;
+                par.useAuxScoring = savedSs12St;
                 par.evalueNNMode = savedEvalueNNMode;
                 par.useReverseScore = savedUseReverseScore;
             }

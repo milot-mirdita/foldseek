@@ -47,7 +47,7 @@ LocalParameters::LocalParameters() :
         PARAM_MIN_ALIGNED_CHAINS(PARAM_MIN_ALIGNED_CHAINS_ID, "--min-aligned-chains", "Minimum threshold of aligned chains","save alignments with at least n chain aligned between query and target" ,typeid(int), (void *) &minAlignedChains, "^[0-9]{1}[0-9]*$"),
         PARAM_MULTIDOMAIN(PARAM_MULTIDOMAIN_ID, "--lolalign-multidomain", "MultiDomain Mode", "MultiDomain Mode LoLalign", typeid(int), (void *) &multiDomain, "^[0-1]{1}$"),
         PARAM_SUBMAT_12ST_SCALE(PARAM_SUBMAT_12ST_SCALE_ID, "--submat-12st-scale", "12st substitution matrix scale", "Scaling factor for 12st substitution matrix", typeid(float), (void *) &submat12stScale, "^[0-9]*(\\.[0-9]+)?$"),
-        PARAM_SS_12ST(PARAM_SS_12ST_ID, "--ss-12st", "Include 12-state alphabet", "Include 12-state structural alphabet in _ss database:\n0: disable\n1: enable", typeid(int), (void *) &ss12st, "^[0-1]{1}$"),
+        PARAM_SS_12ST(PARAM_SS_12ST_ID, "--ss-12st", "Include 12-state alphabet", "Include 12-state structural alphabet in _ss database:\n0: disable\n1: enable", typeid(bool), (void *) &useAuxScoring, ""),
         PARAM_USE_REVERSE_SCORE(PARAM_USE_REVERSE_SCORE_ID, "--use-reverse-score", "Use reverse score", "Subtract reverse alignment score from forward score:\n0: disable\n1: enable", typeid(int), (void *) &useReverseScore, "^[0-1]{1}$"),
         PARAM_EVALUE_NN_MODE(PARAM_EVALUE_NN_MODE_ID, "--evalue-nn-mode", "E-value NN mode", "0: legacy whole-query composition NN\n1: windowed query/target composition NN\n2: legacy whole-query 3Di+12-state composition NN", typeid(int), (void *) &evalueNNMode, "^[0-2]{1}$"),
         PARAM_EVALUE_12ST_PROFILE_COMP(PARAM_EVALUE_12ST_PROFILE_COMP_ID, "--evalue-12st-profile-comp", "12-state e-value profile composition", "Composition source for the 12-state e-value NN (--evalue-nn-mode 2) on profile queries:\n0: center/query sequence\n1: recover from profile scores", typeid(int), (void *) &evalue12StProfileComp, "^[0-1]{1}$"),
@@ -436,7 +436,7 @@ LocalParameters::LocalParameters() :
     submat12stScale = 2.1;
 
     // include 12-state alphabet in _ss database and use for scoring
-    ss12st = 1;
+    useAuxScoring = true;
 
     // subtract reverse alignment score from forward score
     useReverseScore = 1;

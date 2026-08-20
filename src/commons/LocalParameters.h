@@ -254,7 +254,6 @@ public:
     int candidateSeeds;
     int refineSeeds;
     float submat12stScale;
-    int ss12st;
     int useReverseScore;
     int evalueNNMode;
     int evalue12StProfileComp;

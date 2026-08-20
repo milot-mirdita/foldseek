@@ -740,7 +740,7 @@ int samplemulambda(int argc, const char **argv, const Command& command) {
     }
     // Score the 12-state channel exactly as the search path does, so the sampled
     // mu/lambda match the scoring used at query time (3Di + AA + 12st).
-    const bool use12StScoring = par.ss12st && query3Di12St && target3Di12St;
+    const bool use12StScoring = par.useAuxScoring && query3Di12St && target3Di12St;
     int8_t * tinySubMat12St = NULL;
     if (use12StScoring) {
         // SSW uses subMat3Di.alphabetSize as stride for all matrices including 12st

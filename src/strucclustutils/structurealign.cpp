@@ -256,7 +256,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
                                    (touch) ? (IndexReader::PRELOAD_INDEX | IndexReader::PRELOAD_DATA) : 0);
     }
     bool queryHas12St = query3Di12St || (q12StDbr != NULL);
-    bool use12StScoring = par.ss12st && queryHas12St && target3Di12St;
+    bool use12StScoring = par.useAuxScoring && queryHas12St && target3Di12St;
     bool use12StEvalue = par.evalueNNMode == LocalParameters::EVALUE_NN_MODE_LEGACY_12ST;
     if (use12StEvalue && !queryHas12St) {
         Debug(Debug::ERROR) << "--evalue-nn-mode 2 requires a query 12-state alphabet in the packed _ss DB or a _ss12 DB\n";
