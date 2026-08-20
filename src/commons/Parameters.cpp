@@ -44,6 +44,7 @@ Parameters::Parameters():
         PARAM_ALPH_SIZE(PARAM_ALPH_SIZE_ID, "--alph-size", "Alphabet size", "Alphabet size (range 2-21)", typeid(MultiParam<NuclAA<int>>), (void *) &alphabetSize, "", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_CLUSTLINEAR | MMseqsParameter::COMMAND_EXPERT),
         PARAM_MAX_SEQ_LEN(PARAM_MAX_SEQ_LEN_ID, "--max-seq-len", "Max sequence length", "Maximum sequence length", typeid(size_t), (void *) &maxSeqLen, "^[0-9]{1}[0-9]*", MMseqsParameter::COMMAND_COMMON | MMseqsParameter::COMMAND_EXPERT),
         PARAM_DIAGONAL_SCORING(PARAM_DIAGONAL_SCORING_ID, "--diag-score", "Diagonal scoring", "Use ungapped diagonal scoring during prefilter", typeid(bool), (void *) &diagonalScoring, "", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
+        PARAM_USE_AUX_SCORING(PARAM_USE_AUX_SCORING_ID, "--aux-score", "Auxiliary scoring", "Use auxiliary sequence scoring during prefilter", typeid(bool), (void *) &useAuxScoring, "", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
         PARAM_EXACT_KMER_MATCHING(PARAM_EXACT_KMER_MATCHING_ID, "--exact-kmer-matching", "Exact k-mer matching", "Extract only exact k-mers for matching (range 0-1)", typeid(int), (void *) &exactKmerMatching, "^[0-1]{1}$", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
         PARAM_MASK_RESIDUES(PARAM_MASK_RESIDUES_ID, "--mask", "Mask residues", "Mask sequences in prefilter stage with tantan: 0: w/o low complexity masking, 1: with low complexity masking", typeid(int), (void *) &maskMode, "^[0-1]{1}", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
         PARAM_MASK_PROBABILTY(PARAM_MASK_PROBABILTY_ID, "--mask-prob", "Mask residues probability", "Mask sequences is probablity is above threshold", typeid(float), (void *) &maskProb, "^0(\\.[0-9]+)?|^1(\\.0+)?$", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
@@ -108,6 +109,7 @@ Parameters::Parameters():
         PARAM_GPU(PARAM_GPU_ID, "--gpu", "Use GPU", "Use GPU (CUDA) if possible", typeid(int), (void *) &gpu, "^[0-1]{1}$", MMseqsParameter::COMMAND_COMMON),
         PARAM_GPU_SERVER(PARAM_GPU_SERVER_ID, "--gpu-server", "Use GPU server", "Use GPU server", typeid(int), (void *) &gpuServer, "^[0-1]{1}$", MMseqsParameter::COMMAND_COMMON),
         PARAM_GPU_SERVER_WAIT_TIMEOUT(PARAM_GPU_SERVER_WAIT_TIMEOUT_ID, "--gpu-server-wait-timeout", "Wait for GPU server", "Wait for GPU server for 0: don't wait -1: no wait limit: >0 this many seconds", typeid(int), (void *) &gpuServerWaitTimeout, "^-?[0-9]+", MMseqsParameter::COMMAND_COMMON),
+        PARAM_GPU_RESCORE_TOPK_MULT(PARAM_GPU_RESCORE_TOPK_MULT_ID, "--gpu-rescore-topk-mult", "aux rescore top-K multiplier", "add the aux channel to the top (this * --max-seqs) hits ranked by the primary alphabet", typeid(int), (void *) &gpuRescoreTopkMult, "^[1-9][0-9]*$", MMseqsParameter::COMMAND_PREFILTER | MMseqsParameter::COMMAND_EXPERT),
         // convertalignments
         PARAM_FORMAT_MODE(PARAM_FORMAT_MODE_ID, "--format-mode", "Alignment format", "Output format:\n0: BLAST-TAB\n1: SAM\n2: BLAST-TAB + query/db length\n3: Pretty HTML\n4: BLAST-TAB + column headers\nBLAST-TAB (0) and BLAST-TAB + column headers (4) support custom output formats (--format-output)", typeid(int), (void *) &formatAlignmentMode, "^[0-4]{1}$"),
         PARAM_FORMAT_OUTPUT(PARAM_FORMAT_OUTPUT_ID, "--format-output", "Format alignment output", "Choose comma separated list of output columns from: query,target,evalue,gapopen,pident,fident,nident,qstart,qend,qlen\ntstart,tend,tlen,alnlen,raw,bits,cigar,qseq,tseq,qheader,theader,qaln,taln,qframe,tframe,mismatch,qcov,tcov\nqset,qsetid,tset,tsetid,taxid,taxname,taxlineage,qorfstart,qorfend,torfstart,torfend,ppos", typeid(std::string), (void *) &outfmt, ""),
@@ -486,6 +488,7 @@ Parameters::Parameters():
     prefilter.push_back(&PARAM_NO_COMP_BIAS_CORR);
     prefilter.push_back(&PARAM_NO_COMP_BIAS_CORR_SCALE);
     prefilter.push_back(&PARAM_DIAGONAL_SCORING);
+    prefilter.push_back(&PARAM_USE_AUX_SCORING);
     prefilter.push_back(&PARAM_EXACT_KMER_MATCHING);
     prefilter.push_back(&PARAM_MASK_RESIDUES);
     prefilter.push_back(&PARAM_MASK_PROBABILTY);
@@ -519,6 +522,11 @@ Parameters::Parameters():
     ungappedprefilter.push_back(&PARAM_GPU_SERVER);
     ungappedprefilter.push_back(&PARAM_GPU_SERVER_WAIT_TIMEOUT);
     ungappedprefilter.push_back(&PARAM_PREF_MODE);
+    ungappedprefilter.push_back(&PARAM_GPU_RESCORE_TOPK_MULT);
+    // --aux-score gates the aux channel. The k-mer prefilter already honours it;
+    // register it here too so it also reaches the ungapped prefilter instead of
+    // being silently ignored on a packed DB.
+    ungappedprefilter.push_back(&PARAM_USE_AUX_SCORING);
     ungappedprefilter.push_back(&PARAM_THREADS);
     ungappedprefilter.push_back(&PARAM_COMPRESSED);
     ungappedprefilter.push_back(&PARAM_V);
@@ -2550,6 +2558,7 @@ void Parameters::setDefaults() {
     compBiasCorrection = 1;
     compBiasCorrectionScale = 1.0;
     diagonalScoring = true;
+    useAuxScoring = false;
     exactKmerMatching = 0;
     maskMode = 1;
     maskProb = 0.9;
@@ -2667,6 +2676,7 @@ void Parameters::setDefaults() {
 #endif
     gpuServer = 0;
     gpuServerWaitTimeout = 10 * 60;
+    gpuRescoreTopkMult = 3;
 #ifdef HAVE_CUDA
     char* gpuServerEnv = getenv("MMSEQS_FORCE_GPUSERVER");
     if (gpuServerEnv != NULL) {
