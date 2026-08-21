@@ -116,6 +116,13 @@ LocalParameters::LocalParameters() :
     structurecreatedb.push_back(&PARAM_INPUT_FORMAT);
     structurecreatedb.push_back(&PARAM_INPUT_COMPRESSION_FORMAT);
     structurecreatedb.push_back(&PARAM_SS_12ST);
+
+    // prefilter
+    prefilter.push_back(&PARAM_SS_12ST);
+
+    // ungappedprefilter
+    ungappedprefilter.push_back(&PARAM_SS_12ST);
+
     // protein chain only
     structurecreatedb.push_back(&PARAM_FILE_INCLUDE);
     structurecreatedb.push_back(&PARAM_FILE_EXCLUDE);
@@ -165,6 +172,7 @@ LocalParameters::LocalParameters() :
     structurerescorediagonal.push_back(&PARAM_LDDT_THRESHOLD);
     structurerescorediagonal.push_back(&PARAM_ALIGNMENT_TYPE);
     structurerescorediagonal.push_back(&PARAM_SS_12ST);
+
     structurerescorediagonal.push_back(&PARAM_SUBMAT_12ST_SCALE);
     structurerescorediagonal.push_back(&PARAM_EVALUE_NN_MODE);
     structurerescorediagonal.push_back(&PARAM_EVALUE_12ST_PROFILE_COMP);
