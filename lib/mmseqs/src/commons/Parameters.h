@@ -415,7 +415,6 @@ public:
     int    gpu;                          // use GPU
     int    gpuServer;                    // use the gpu server
     int    gpuServerWaitTimeout;         // wait for this many seconds until GPU server is ready
-    int    gpuRescoreTopkMult;           // rescore top (this * maxResListLen) hits with the aux channel
     int    threads;                      // Amounts of threads
     int    compressed;                   // compressed writer
     bool   removeTmpFiles;               // Do not delete temp files
@@ -431,7 +430,7 @@ public:
     float    compBiasCorrectionScale;    // Aminoacid composiont correction scale factor
 
     bool   diagonalScoring;              // switch diagonal scoring
-    bool   useAuxScoring;               // use auxiliary sequence scoring in prefilter
+    bool   useAuxScoring;                // use auxiliary sequence scoring in prefilter
     int    exactKmerMatching;            // only exact k-mer matching
     int    maskMode;                     // mask low complex areas
     float  maskProb;                     // mask probability
@@ -819,7 +818,6 @@ public:
     PARAMETER(PARAM_ALPH_SIZE)
     PARAMETER(PARAM_MAX_SEQ_LEN)
     PARAMETER(PARAM_DIAGONAL_SCORING)
-    PARAMETER(PARAM_USE_AUX_SCORING)
     PARAMETER(PARAM_EXACT_KMER_MATCHING)
     PARAMETER(PARAM_MASK_RESIDUES)
     PARAMETER(PARAM_MASK_PROBABILTY)
@@ -892,7 +890,6 @@ public:
     PARAMETER(PARAM_GPU)
     PARAMETER(PARAM_GPU_SERVER)
     PARAMETER(PARAM_GPU_SERVER_WAIT_TIMEOUT)
-    PARAMETER(PARAM_GPU_RESCORE_TOPK_MULT)
     // format alignment
     PARAMETER(PARAM_FORMAT_MODE)
     PARAMETER(PARAM_FORMAT_OUTPUT)
