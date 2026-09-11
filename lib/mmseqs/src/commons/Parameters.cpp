@@ -512,6 +512,7 @@ Parameters::Parameters():
     ungappedprefilter.push_back(&PARAM_NO_COMP_BIAS_CORR);
     ungappedprefilter.push_back(&PARAM_NO_COMP_BIAS_CORR_SCALE);
     ungappedprefilter.push_back(&PARAM_MIN_DIAG_SCORE);
+    ungappedprefilter.push_back(&PARAM_MASK_N_REPEAT);
     ungappedprefilter.push_back(&PARAM_MAX_SEQS);
     ungappedprefilter.push_back(&PARAM_TAXON_LIST);
     ungappedprefilter.push_back(&PARAM_PRELOAD_MODE);
@@ -2550,6 +2551,7 @@ void Parameters::setDefaults() {
     compBiasCorrection = 1;
     compBiasCorrectionScale = 1.0;
     diagonalScoring = true;
+    useAuxScoring = false;
     exactKmerMatching = 0;
     maskMode = 1;
     maskProb = 0.9;
