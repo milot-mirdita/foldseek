@@ -13,6 +13,8 @@
 #include "Coordinate16.h"
 #include "LDDT.h"
 #include "structureto12st.h"
+#include "HitRanker.h"
+
 
 #ifdef OPENMP
 #include <omp.h>
@@ -215,6 +217,21 @@ int structurealign(int argc, const char **argv, const Command& command) {
     if(Parameters::isEqualDbtype(tAADbr.getDbtype(), Parameters::DBTYPE_INDEX_DB)){
         db2CaExist = true;
     }
+    bool useRankModel = par.sortByStructureBits == 2;
+    if (useRankModel && (par.alignmentMode == 1 || par.alignmentMode == 2)) {
+        Debug(Debug::WARNING) << "--sort-by-structure-bits 2 needs an alignment mode with backtraces\n"
+                              << "Hits are sorted by E-value\n";
+        useRankModel = false;
+    }
+    HitRanker::Model rankModel;
+    if (useRankModel) {
+        rankModel.loadBuiltin(db1CaExist, db2CaExist);
+        // the ranker sorts hits itself and keeps the raw bit score
+        par.sortByStructureBits = 0;
+    } else if (par.sortByStructureBits == 2) {
+        par.sortByStructureBits = 0;
+    }
+
     if(par.sortByStructureBits) {
         bool disableStructureBits = false;
         if(db1CaExist == false || db2CaExist == false){
@@ -259,10 +276,16 @@ int structurealign(int argc, const char **argv, const Command& command) {
             needLDDT = false;
         }
     }
+    if (useRankModel && db1CaExist && db2CaExist) {
+        // native lDDT and TM-score are ranking features when query coordinates exist
+        needTMaligner = true;
+        needLDDT = true;
+    }
     bool needCalpha = (needTMaligner || needLDDT);
+    bool needTargetCalpha = needCalpha || (useRankModel && db2CaExist);
     IndexReader *qcadbr = NULL;
     IndexReader *tcadbr = NULL;
-    if(needCalpha){
+    if(needCalpha || (sameDB && needTargetCalpha)){
         qcadbr = new IndexReader(
                 par.db1,
                 par.threads,
@@ -270,6 +293,8 @@ int structurealign(int argc, const char **argv, const Command& command) {
                 touch ? (IndexReader::PRELOAD_INDEX | IndexReader::PRELOAD_DATA) : 0,
                 DBReader<unsigned int>::USE_INDEX | DBReader<unsigned int>::USE_DATA,
                 "_ca");
+    }
+    if(needTargetCalpha){
         if (sameDB) {
             tcadbr = qcadbr;
         } else {
@@ -338,6 +363,7 @@ int structurealign(int argc, const char **argv, const Command& command) {
             tinySubMatAA[i * subMatAA.alphabetSize + j] = subMatAA.subMatrix[i][j];
         }
     }
+
 #pragma omp parallel
     {
         unsigned int thread_idx = 0;
@@ -426,6 +452,16 @@ int structurealign(int argc, const char **argv, const Command& command) {
 
         TMaligner::TMscoreResult tmres;
         LDDTCalculator::LDDTScoreResult lddtres;
+
+        HitRanker::Chain queryChain;
+        HitRanker::Chain targetChain;
+        std::vector<unsigned char> queryAA;
+        std::vector<unsigned char> query3Di;
+        std::vector<float> rankFeatures(HitRanker::FEATURE_NAMES.size());
+        std::vector<float> rankFeatureRows;     // one row per scored hit
+        std::vector<float> rankFeatureColumns;
+        std::vector<size_t> rankRowOfResult;    // row of each entry in alignmentResult
+        std::vector<double> rankScores;
         // write output file
 
 #pragma omp for schedule(dynamic, 1)
@@ -470,6 +506,16 @@ int structurealign(int argc, const char **argv, const Command& command) {
                 }
                 qSeq3Di.mapSequence(id, queryKey, querySeq3Di21, querySeqLen);
                 qSeqAA.mapSequence(id, queryKey, querySeqAA, querySeqLen);
+                if (useRankModel) {
+                    // copy, the query sequences get reversed below
+                    queryAA.assign(qSeqAA.numSequence, qSeqAA.numSequence + qSeqAA.L);
+                    query3Di.assign(qSeq3Di.numSequence, qSeq3Di.numSequence + qSeq3Di.L);
+                    queryChain.seqAA = queryAA.data();
+                    queryChain.seq3Di = query3Di.data();
+                    queryChain.length = qSeq3Di.L;
+                    queryChain.x = queryChain.y = queryChain.z = NULL;
+                    queryChain.setSecondaryStructure(subMat3Di);
+                }
                 if (!query3Di12St && use12StScoring && query12StProfileLayout
                     && Parameters::isEqualDbtype(q3DiDbr->getDbtype(), Parameters::DBTYPE_HMM_PROFILE)) {
                     StructureUtil::mask12StProfile(qSeq3Di, *qSeq12St);
@@ -551,11 +597,14 @@ int structurealign(int argc, const char **argv, const Command& command) {
                     }
 
                     if (Alignment::checkCriteria(res, isIdentity, par.evalThr, par.seqIdThr, par.alnLenThr, par.covMode, par.covThr)) {
-                        if(needCalpha) {
+                        float* targetCaData = NULL;
+                        if(needTargetCalpha) {
                             size_t tId = tcadbr->sequenceReader->getId(res.dbKey);
                             char *tcadata = tcadbr->sequenceReader->getData(tId, thread_idx);
                             size_t tCaLength = tcadbr->sequenceReader->getEntryLen(tId);
-                            float* targetCaData = tcoords.read(tcadata, res.dbLen, tCaLength);
+                            targetCaData = tcoords.read(tcadata, res.dbLen, tCaLength);
+                        }
+                        if(needCalpha) {
                             if(needTMaligner) {
                                 tmres = tmaligner->computeTMscore(targetCaData,
                                                                   &targetCaData[res.dbLen],
@@ -586,9 +635,24 @@ int structurealign(int argc, const char **argv, const Command& command) {
                                 res.score = res.score * sqrt(lddtres.avgLddtScore * tmres.tmscore);
                             }
                         }
-
+                        const size_t rankRow = rankFeatureRows.size() / HitRanker::FEATURE_NAMES.size();
+                        if (useRankModel) {
+                            targetChain.seqAA = tSeqAA.numSequence;
+                            targetChain.seq3Di = tSeq3Di.numSequence;
+                            targetChain.length = targetSeqLen;
+                            targetChain.x = targetCaData;
+                            targetChain.y = targetCaData != NULL ? &targetCaData[res.dbLen] : NULL;
+                            targetChain.z = targetCaData != NULL ? &targetCaData[res.dbLen + res.dbLen] : NULL;
+                            targetChain.setSecondaryStructure(subMat3Di);
+                            const bool hasNative = needTMaligner && needLDDT;
+                            HitRanker::computeFeatures(queryChain, targetChain, res, subMatAA, subMat3Di,
+                                                       hasNative ? lddtres.avgLddtScore : NAN,
+                                                       hasNative ? tmres.tmscore : NAN, rankFeatures.data());
+                            rankFeatureRows.insert(rankFeatureRows.end(), rankFeatures.begin(), rankFeatures.end());
+                        }
 
                         alignmentResult.emplace_back(res);
+                        rankRowOfResult.push_back(rankRow);
                         int altAli = par.altAlignment;
                         bool moreAltAli = true;
                         while(altAli && moreAltAli){
@@ -602,6 +666,8 @@ int structurealign(int argc, const char **argv, const Command& command) {
                                 continue;
                             }
                             alignmentResult.push_back(altRes);
+                            // alternative alignments keep the score of their primary hit
+                            rankRowOfResult.push_back(rankRow);
                             res = altRes;
                             altAli--;
                         }
@@ -614,7 +680,38 @@ int structurealign(int argc, const char **argv, const Command& command) {
             }
 
 
-            if (alignmentResult.size() > 1) {
+            if (useRankModel && alignmentResult.size() > 1) {
+                const size_t nFeatures = HitRanker::FEATURE_NAMES.size();
+                const size_t nRows = rankFeatureRows.size() / nFeatures;
+                rankFeatureColumns.resize(rankFeatureRows.size());
+                for (size_t r = 0; r < nRows; r++) {
+                    for (size_t f = 0; f < nFeatures; f++) {
+                        rankFeatureColumns[f * nRows + r] = rankFeatureRows[r * nFeatures + f];
+                    }
+                }
+                std::vector<double> rowScores(nRows);
+                rankModel.predict(rankFeatureColumns.data(), nRows, rowScores.data());
+                rankScores.resize(alignmentResult.size());
+                for (size_t i = 0; i < alignmentResult.size(); i++) {
+                    rankScores[i] = rowScores[rankRowOfResult[i]];
+                }
+                std::vector<size_t> order(alignmentResult.size());
+                for (size_t i = 0; i < order.size(); i++) {
+                    order[i] = i;
+                }
+                std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                    if (rankScores[a] != rankScores[b]) {
+                        return rankScores[a] > rankScores[b];
+                    }
+                    return Matcher::compareHits(alignmentResult[a], alignmentResult[b]);
+                });
+                std::vector<Matcher::result_t> sorted;
+                sorted.reserve(order.size());
+                for (size_t i : order) {
+                    sorted.emplace_back(alignmentResult[i]);
+                }
+                alignmentResult.swap(sorted);
+            } else if (alignmentResult.size() > 1) {
                 if(par.sortByStructureBits) {
                     SORT_SERIAL(alignmentResult.begin(), alignmentResult.end(), compareHitsByStructureBits);
                 } else {
@@ -628,6 +725,9 @@ int structurealign(int argc, const char **argv, const Command& command) {
             dbw.writeData(resultBuffer.c_str(), resultBuffer.length(), queryKey, thread_idx);
             resultBuffer.clear();
             alignmentResult.clear();
+            rankScores.clear();
+            rankRowOfResult.clear();
+            rankFeatureRows.clear();
         }
         if(needTMaligner){
             delete tmaligner;
@@ -645,10 +745,10 @@ int structurealign(int argc, const char **argv, const Command& command) {
     dbw.close();
     resultReader.close();
 
-    if(needCalpha){
-        if (sameDB == false) {
-            delete tcadbr;
-        }
+    if (sameDB == false && tcadbr != NULL) {
+        delete tcadbr;
+    }
+    if (qcadbr != NULL) {
         delete qcadbr;
     }
 

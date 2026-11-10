@@ -3,6 +3,8 @@ set(strucclustutils_source_files
         strucclustutils/aln2tmscore.cpp
         strucclustutils/structcreatedb.cpp
         strucclustutils/structurealign.cpp
+        strucclustutils/HitRanker.cpp
+        strucclustutils/HitRanker.h
         strucclustutils/samplemulambda.cpp
         strucclustutils/structureconvertalis.cpp
         strucclustutils/structureto3didescriptor.cpp

@@ -15,6 +15,9 @@ set(COMPILED_RESOURCES
         encoder_weights_3di.kerasify
         evalue_nn.kerasify
         evalue_12st_nn.kerasify
+        hitrank_native.txt
+        hitrank_target.txt
+        hitrank_seq.txt
         main.js
         vendor.js.zst
         makepaddeddb.sh
