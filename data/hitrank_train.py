@@ -12,16 +12,17 @@ import sys
 import lightgbm as lgb
 import pandas as pd
 
+# no logE (depends on the database size) and no counts that grow with the alignment length
 SPEC = [
-    "bits", "logE", "alnlen", "fident", "gapopen", "gapres", "bits_per_col", "nM",
-    "s3_sum", "sa_sum", "s3_mean", "sa_mean", "id3", "pos3", "posrun",
-    "qspan", "tspan", "span_ratio", "cont_both", "cont_span", "rg_ratio",
+    "bits", "fident", "gapres", "bits_per_col", "s3_mean", "sa_mean", "id3", "pos3", "posrun",
+    "span_ratio", "cont_both", "cont_span", "rg_ratio",
     "a_col_same", "a_col_wrong", "a_col_qsse_gap", "a_col_tsse_gap",
     "a_match_q", "a_match_t", "a_unm_qE", "a_unm_qH", "a_unm_tE", "a_unm_tH",
 ]  # fmt: skip
 CONTACTS = ["cont_both", "cont_span", "rg_ratio"]
 MODELS = {
-    "native": (SPEC + ["native", "lddt", "tm"],
+    # the other features overfit to SCOP domains when the native factor is available
+    "native": (["bits", "native", "lddt", "tm"],
                "HitRanker model for query and target C-alpha: LambdaRank 100 trees x 7 leaves on SCOP40, foldseek2 12-state"),
     "target": (SPEC,
                "HitRanker model for target C-alpha only: LambdaRank 100 trees x 7 leaves on SCOP40 with ModernProst queries, foldseek2 12-state"),
